@@ -27,6 +27,9 @@ class AudioProcessor(context: Context) {
     private val powerFrames = FloatArray(expectedFrames * nFreqBins) // Changed to FloatArray
     private val fftBuffer = FloatArray(nFft)
     private val melSpec = FloatArray(expectedFrames * nMels)
+    
+    private val melStartIndices = IntArray(nMels)
+    private val melEndIndices = IntArray(nMels)
 
     init {
         // Pre-compute Hann window (periodic=False)
@@ -41,6 +44,29 @@ class AudioProcessor(context: Context) {
             for (i in melBasis.indices) {
                 melBasis[i] = buffer.float
             }
+        }
+
+        // Pre-compute sparse indices for mel basis
+        for (m in 0 until nMels) {
+            val melRowOffset = m * nFreqBins
+            var firstNonZero = -1
+            var lastNonZero = -1
+            
+            for (k in 0 until nFreqBins) {
+                if (melBasis[melRowOffset + k] > 0.0f) {
+                    if (firstNonZero == -1) firstNonZero = k
+                    lastNonZero = k
+                }
+            }
+            
+            // Fallback in case a row is entirely zero (unlikely but safe)
+            if (firstNonZero == -1) {
+                firstNonZero = 0
+                lastNonZero = 0
+            }
+            
+            melStartIndices[m] = firstNonZero
+            melEndIndices[m] = lastNonZero
         }
     }
 
@@ -89,9 +115,11 @@ class AudioProcessor(context: Context) {
             val frameOffset = f * nFreqBins
             for (m in 0 until nMels) {
                 val melRowOffset = m * nFreqBins
+                val startIdx = melStartIndices[m]
+                val endIdx = melEndIndices[m]
 
                 var sum = 0.0f
-                for (k in 0 until nFreqBins) {
+                for (k in startIdx..endIdx) {
                     sum += melBasis[melRowOffset + k] * powerFrames[frameOffset + k]
                 }
 
