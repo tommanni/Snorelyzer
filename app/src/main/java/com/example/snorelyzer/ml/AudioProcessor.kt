@@ -1,7 +1,7 @@
 package com.example.snorelyzer.ml
 
 import android.content.Context
-import org.jtransforms.fft.DoubleFFT_1D
+import org.jtransforms.fft.FloatFFT_1D
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
@@ -18,20 +18,20 @@ class AudioProcessor(context: Context) {
     private val padLength = nFft / 2 // 512
     private val expectedSamples = 320000
 
-    private val fft = DoubleFFT_1D(nFft.toLong())
-    private val window = DoubleArray(winLength)
+    private val fft = FloatFFT_1D(nFft.toLong())
+    private val window = FloatArray(winLength)
     private val melBasis = FloatArray(nMels * nFreqBins)
 
     private val paddedLen = expectedSamples + padLength * 2
     private val paddedAudio = FloatArray(paddedLen)
     private val powerFrames = FloatArray(expectedFrames * nFreqBins) // Changed to FloatArray
-    private val fftBuffer = DoubleArray(nFft)
+    private val fftBuffer = FloatArray(nFft)
     private val melSpec = FloatArray(expectedFrames * nMels)
 
     init {
         // Pre-compute Hann window (periodic=False)
         for (i in 0 until winLength) {
-            window[i] = 0.5 - 0.5 * cos(2.0 * PI * i / (winLength - 1))
+            window[i] = (0.5 - 0.5 * cos(2.0 * PI * i / (winLength - 1))).toFloat()
         }
 
         // Load mel basis matrix from assets
@@ -65,23 +65,22 @@ class AudioProcessor(context: Context) {
             val offset = (nFft - winLength) / 2
 
             // Fast array zeroing
-            fftBuffer.fill(0.0)
+            fftBuffer.fill(0.0f)
 
             for (i in 0 until winLength) {
-                fftBuffer[offset + i] = paddedAudio[startInPadded + i].toDouble() * window[i]
+                fftBuffer[offset + i] = paddedAudio[startInPadded + i] * window[i]
             }
 
             fft.realForward(fftBuffer)
 
             val frameOffset = frame * nFreqBins
 
-            // Cast down to Float immediately to speed up the matrix multiplication later
-            powerFrames[frameOffset + 0] = (fftBuffer[0] * fftBuffer[0]).toFloat()
-            powerFrames[frameOffset + nFreqBins - 1] = (fftBuffer[1] * fftBuffer[1]).toFloat()
+            powerFrames[frameOffset + 0] = fftBuffer[0] * fftBuffer[0]
+            powerFrames[frameOffset + nFreqBins - 1] = fftBuffer[1] * fftBuffer[1]
             for (k in 1 until nFreqBins - 1) {
                 val re = fftBuffer[2 * k]
                 val im = fftBuffer[2 * k + 1]
-                powerFrames[frameOffset + k] = (re * re + im * im).toFloat()
+                powerFrames[frameOffset + k] = re * re + im * im
             }
         }
 
@@ -96,7 +95,7 @@ class AudioProcessor(context: Context) {
                     sum += melBasis[melRowOffset + k] * powerFrames[frameOffset + k]
                 }
 
-                val lnMel = ln((sum + 0.00001f).toDouble()).toFloat()
+                val lnMel = ln(sum + 0.00001f)
                 melSpec[m * expectedFrames + f] = (lnMel + 4.5f) / 5.0f
             }
         }
