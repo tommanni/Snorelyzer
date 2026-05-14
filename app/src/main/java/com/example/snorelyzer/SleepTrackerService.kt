@@ -9,9 +9,11 @@ import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.example.snorelyzer.ml.AudioProcessor
 import com.example.snorelyzer.ml.SleepClassifier
 import kotlinx.coroutines.*
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
+import kotlin.time.Duration.Companion.milliseconds
 
 class SleepTrackerService : Service() {
 
@@ -75,7 +78,13 @@ class SleepTrackerService : Service() {
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", pendingStop)
             .build()
 
-        startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // For Android 11 (API 30) and newer declare the microphone type
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } else {
+            // For Android 10 (API 29) and older we start the foreground service normally
+            startForeground(1, notification)
+        }
     }
 
     private fun startAudioProcessing() {
@@ -132,7 +141,7 @@ class SleepTrackerService : Service() {
                                 isRecording.set(false)
                                 break
                             }
-                            delay(10)
+                            delay(10.milliseconds)
                         }
                     }
 
