@@ -213,6 +213,7 @@ class SleepTrackerService : Service() {
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
+        audioProcessor.reset()
         scope.cancel()
         classifier.close()
         super.onDestroy()

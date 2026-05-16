@@ -70,6 +70,13 @@ class AudioProcessor(context: Context) {
         }
     }
 
+    private var isFirstRun = true
+    private val framesPerStep = 100 // 1 second of audio at 32kHz with 320 hopSize
+
+    fun reset() {
+        isFirstRun = true
+    }
+
     fun process(audioData: FloatArray): FloatArray {
         require(audioData.size == expectedSamples) { "Expected 320,000 samples, got ${audioData.size}" }
 
@@ -85,8 +92,25 @@ class AudioProcessor(context: Context) {
             paddedAudio[padLength + expectedSamples + i] = paddedAudio[padLength + expectedSamples - 2 - i]
         }
 
-        // 3. STFT
-        for (frame in 0 until expectedFrames) {
+        // Determine how many frames we need to compute
+        val startFrame = if (isFirstRun) 0 else expectedFrames - framesPerStep
+
+        if (!isFirstRun) {
+            // Shift existing melSpec left by framesPerStep (100)
+            for (m in 0 until nMels) {
+                val melRowStart = m * expectedFrames
+                System.arraycopy(
+                    melSpec,
+                    melRowStart + framesPerStep,
+                    melSpec,
+                    melRowStart,
+                    expectedFrames - framesPerStep
+                )
+            }
+        }
+
+        // 3. STFT (Compute only new frames)
+        for (frame in startFrame until expectedFrames) {
             val startInPadded = frame * hopSize + padLength - (winLength / 2)
             val offset = (nFft - winLength) / 2
 
@@ -110,8 +134,8 @@ class AudioProcessor(context: Context) {
             }
         }
 
-        // 4. Mel Projection & Normalization
-        for (f in 0 until expectedFrames) {
+        // 4. Mel Projection & Normalization (Compute only new frames)
+        for (f in startFrame until expectedFrames) {
             val frameOffset = f * nFreqBins
             for (m in 0 until nMels) {
                 val melRowOffset = m * nFreqBins
@@ -128,6 +152,7 @@ class AudioProcessor(context: Context) {
             }
         }
 
+        isFirstRun = false
         return melSpec
     }
 }
