@@ -18,6 +18,7 @@ import com.example.snorelyzer.ml.SleepClassifier
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.koin.android.ext.android.inject
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 import kotlin.time.Duration.Companion.milliseconds
@@ -43,8 +44,8 @@ class SleepTrackerService : Service() {
     private var isRecording = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
 
-    private lateinit var audioProcessor: AudioProcessor
-    private lateinit var classifier: SleepClassifier
+    private val audioProcessor: AudioProcessor by inject()
+    private val classifier: SleepClassifier by inject()
 
     // 320,000 samples needed for full context (10 seconds @ 32kHz)
     // We step by 32,000 samples per inference (1 second)
@@ -55,8 +56,6 @@ class SleepTrackerService : Service() {
     override fun onCreate() {
         super.onCreate()
         _isServiceRunning.value = true
-        audioProcessor = AudioProcessor(this)
-        classifier = SleepClassifier(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
