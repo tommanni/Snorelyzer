@@ -23,14 +23,14 @@ class SleepClassifier(context: Context) {
     private val outputBuffers by lazy { model.createOutputBuffers() }
 
     init {
-        model = try {
-            val options = CompiledModel.Options(Accelerator.NPU)
-            CompiledModel.create(context.assets, AudioModelConfig.MODEL_ASSET, options, environment)
-        } catch (e: Exception) {
-            Log.w("SleepClassifier", "NPU init failed, falling back to CPU", e)
-            val options = CompiledModel.Options(Accelerator.CPU)
-            CompiledModel.create(context.assets, AudioModelConfig.MODEL_ASSET, options, environment)
-        }
+        val options = CompiledModel.Options(Accelerator.CPU)
+
+        model = CompiledModel.create(
+            context.assets,
+            AudioModelConfig.MODEL_ASSET,
+            options,
+            environment
+        )
 
         validateInputShape()
         loadLabels(context)
