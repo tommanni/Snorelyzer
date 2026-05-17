@@ -182,7 +182,9 @@ class SleepTrackerService : Service() {
         val start = System.currentTimeMillis()
         try {
             // 1. DSP
+            val t0 = System.nanoTime()
             val melTensor = audioProcessor.process(buffer)
+            val t1 = System.nanoTime()
 
             val min = melTensor.min()
             val max = melTensor.max()
@@ -191,6 +193,11 @@ class SleepTrackerService : Service() {
 
             // 2. Inference
             val topResults = classifier.classify(melTensor, topK = 3)
+            val t2 = System.nanoTime()
+            Log.d(
+                "Timing",
+                "Preprocessing: ${(t1 - t0) / 1_000_000}ms, Inference: ${(t2 - t1) / 1_000_000}ms"
+            )
 
             // 3. Log results
             if (topResults.isNotEmpty()) {
