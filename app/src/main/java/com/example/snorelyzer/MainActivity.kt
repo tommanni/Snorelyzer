@@ -42,13 +42,49 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        val latestResult by SleepTrackerService.latestResult.collectAsState()
+                        val latestStatus by SleepTrackerService.latestStatus.collectAsState()
+                        val latestResults by SleepTrackerService.latestResults.collectAsState()
 
                         Text(
-                            text = "Detected Sound:\n$latestResult",
+                            text = "Detected Sounds",
                             style = MaterialTheme.typography.headlineSmall,
                             textAlign = TextAlign.Center
                         )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        if (latestResults.isEmpty()) {
+                            Text(
+                                text = latestStatus,
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 32.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                latestResults.forEach { result ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = result.label,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = "${result.probabilityPercent}%",
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(32.dp))
 

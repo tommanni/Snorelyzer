@@ -22,11 +22,19 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 import kotlin.time.Duration.Companion.milliseconds
 
+data class DetectedClassUi(
+    val label: String,
+    val probabilityPercent: Int
+)
+
 class SleepTrackerService : Service() {
 
     companion object {
-        private val _latestResult = MutableStateFlow("Waiting for audio...")
-        val latestResult = _latestResult.asStateFlow()
+        private val _latestStatus = MutableStateFlow("Waiting for audio...")
+        val latestStatus = _latestStatus.asStateFlow()
+
+        private val _latestResults = MutableStateFlow<List<DetectedClassUi>>(emptyList())
+        val latestResults = _latestResults.asStateFlow()
 
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning = _isServiceRunning.asStateFlow()
@@ -198,7 +206,13 @@ class SleepTrackerService : Service() {
                     }
                 }
                 Log.d("SleepTracker", logMsg)
-                _latestResult.value = "${top1.label} (${(top1.probability * 100).toInt()}%)"
+                _latestStatus.value = ""
+                _latestResults.value = topResults.take(3).map { result ->
+                    DetectedClassUi(
+                        label = result.label,
+                        probabilityPercent = (result.probability * 100).toInt()
+                    )
+                }
             }
 
         } catch (e: Exception) {
@@ -208,7 +222,8 @@ class SleepTrackerService : Service() {
 
     override fun onDestroy() {
         _isServiceRunning.value = false
-        _latestResult.value = "Stopped"
+        _latestStatus.value = "Stopped"
+        _latestResults.value = emptyList()
         isRecording.set(false)
         audioRecord?.stop()
         audioRecord?.release()
