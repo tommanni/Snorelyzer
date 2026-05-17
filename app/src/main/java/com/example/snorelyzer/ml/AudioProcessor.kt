@@ -9,14 +9,14 @@ import kotlin.math.cos
 import kotlin.math.ln
 
 class AudioProcessor(context: Context) {
-    private val nMels = 128
-    private val nFft = 1024
-    private val nFreqBins = nFft / 2 + 1 // 513
-    private val winLength = 800
-    private val hopSize = 320
-    private val expectedFrames = 1000
+    private val nMels = AudioModelConfig.N_MELS
+    private val nFft = AudioModelConfig.N_FFT
+    private val nFreqBins = AudioModelConfig.N_FREQ_BINS
+    private val winLength = AudioModelConfig.WIN_LENGTH
+    private val hopSize = AudioModelConfig.HOP_SIZE
+    private val expectedFrames = AudioModelConfig.EXPECTED_FRAMES
     private val padLength = nFft / 2 // 512
-    private val expectedSamples = 320000
+    private val expectedSamples = AudioModelConfig.EXPECTED_SAMPLES
 
     private val fft = FloatFFT_1D(nFft.toLong())
     private val window = FloatArray(winLength)
@@ -40,8 +40,12 @@ class AudioProcessor(context: Context) {
         }
 
         // Load mel basis matrix from assets
-        context.assets.open("mel_basis.bin").use { inputStream ->
+        context.assets.open(AudioModelConfig.MEL_BASIS_ASSET).use { inputStream ->
             val bytes = inputStream.readBytes()
+            require(bytes.size == AudioModelConfig.MEL_BASIS_BYTES) {
+                "Expected ${AudioModelConfig.MEL_BASIS_ASSET} to be " +
+                    "${AudioModelConfig.MEL_BASIS_BYTES} bytes for $nMels mel bins, got ${bytes.size}"
+            }
             val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
             for (i in melBasis.indices) {
                 melBasis[i] = buffer.float

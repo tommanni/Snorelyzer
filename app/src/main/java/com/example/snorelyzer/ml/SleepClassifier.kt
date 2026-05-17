@@ -25,14 +25,28 @@ class SleepClassifier(context: Context) {
     init {
         model = try {
             val options = CompiledModel.Options(Accelerator.NPU)
-            CompiledModel.create(context.assets, "efficientat.tflite", options, environment)
+            CompiledModel.create(context.assets, AudioModelConfig.MODEL_ASSET, options, environment)
         } catch (e: Exception) {
             Log.w("SleepClassifier", "NPU init failed, falling back to CPU", e)
             val options = CompiledModel.Options(Accelerator.CPU)
-            CompiledModel.create(context.assets, "efficientat.tflite", options, environment)
+            CompiledModel.create(context.assets, AudioModelConfig.MODEL_ASSET, options, environment)
         }
 
+        validateInputShape()
         loadLabels(context)
+    }
+
+    private fun validateInputShape() {
+        try {
+            inputBuffers[0].writeFloat(FloatArray(AudioModelConfig.MEL_TENSOR_SIZE))
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "Expected ${AudioModelConfig.MODEL_ASSET} to accept " +
+                    "${AudioModelConfig.N_MELS}x${AudioModelConfig.EXPECTED_FRAMES} float input " +
+                    "(${AudioModelConfig.MEL_TENSOR_BYTES} bytes)",
+                e
+            )
+        }
     }
 
     private fun loadLabels(context: Context) {
@@ -63,10 +77,15 @@ class SleepClassifier(context: Context) {
     }
 
     /**
-     * Classifies a 128x1000 Mel-spectrogram tensor (flattened to 128,000 elements).
+     * Classifies a 64x1000 Mel-spectrogram tensor (flattened to 64,000 elements).
      * Returns a list of the top classifications.
      */
     fun classify(melSpectrogram: FloatArray, topK: Int = 3): List<ClassificationResult> {
+        require(melSpectrogram.size == AudioModelConfig.MEL_TENSOR_SIZE) {
+            "Expected ${AudioModelConfig.MEL_TENSOR_SIZE} mel values for " +
+                "${AudioModelConfig.N_MELS}x${AudioModelConfig.EXPECTED_FRAMES} input, got ${melSpectrogram.size}"
+        }
+
         inputBuffers[0].writeFloat(melSpectrogram)
         model.run(inputBuffers, outputBuffers)
         val logits = outputBuffers[0].readFloat()
