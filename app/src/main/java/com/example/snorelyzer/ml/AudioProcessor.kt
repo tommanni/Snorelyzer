@@ -24,9 +24,11 @@ class AudioProcessor(context: Context) {
 
     private val paddedLen = expectedSamples + padLength * 2
     private val paddedAudio = FloatArray(paddedLen)
+    private val preEmphasizedAudio = FloatArray(expectedSamples)
     private val powerFrames = FloatArray(expectedFrames * nFreqBins) // Changed to FloatArray
     private val fftBuffer = FloatArray(nFft)
     private val melSpec = FloatArray(expectedFrames * nMels)
+    private val newMelFrames = FloatArray(expectedFrames * nMels)
     
     private val melStartIndices = IntArray(nMels)
     private val melEndIndices = IntArray(nMels)
@@ -72,6 +74,7 @@ class AudioProcessor(context: Context) {
 
     private var isFirstRun = true
     private val framesPerStep = 100 // 1 second of audio at 32kHz with 320 hopSize
+    private val stepSamples = framesPerStep * hopSize
 
     fun reset() {
         isFirstRun = true
@@ -80,16 +83,11 @@ class AudioProcessor(context: Context) {
     fun process(audioData: FloatArray): FloatArray {
         require(audioData.size == expectedSamples) { "Expected 320,000 samples, got ${audioData.size}" }
 
-        // 1 & 2. Pre-emphasis & Padding
-        paddedAudio[padLength] = audioData[0]
-        for (i in 1 until audioData.size) {
-            paddedAudio[padLength + i] = audioData[i] - 0.97f * audioData[i - 1]
-        }
-
-        // Reflective padding
-        for (i in 0 until padLength) {
-            paddedAudio[padLength - 1 - i] = paddedAudio[padLength + i + 1]
-            paddedAudio[padLength + expectedSamples + i] = paddedAudio[padLength + expectedSamples - 2 - i]
+        // 1 & 2. Pre-emphasis & padding
+        if (isFirstRun) {
+            computeFullPreEmphasis(audioData)
+        } else {
+            updatePreEmphasisTail(audioData)
         }
 
         // Determine how many frames we need to compute
@@ -137,6 +135,7 @@ class AudioProcessor(context: Context) {
         // 4. Mel Projection & Normalization (Compute only new frames)
         for (f in startFrame until expectedFrames) {
             val frameOffset = f * nFreqBins
+            val melFrameOffset = (f - startFrame) * nMels
             for (m in 0 until nMels) {
                 val melRowOffset = m * nFreqBins
                 val startIdx = melStartIndices[m]
@@ -148,11 +147,55 @@ class AudioProcessor(context: Context) {
                 }
 
                 val lnMel = ln(sum + 0.00001f)
-                melSpec[m * expectedFrames + f] = (lnMel + 4.5f) / 5.0f
+                newMelFrames[melFrameOffset + m] = (lnMel + 4.5f) / 5.0f
+            }
+        }
+
+        for (f in startFrame until expectedFrames) {
+            val melFrameOffset = (f - startFrame) * nMels
+            for (m in 0 until nMels) {
+                melSpec[m * expectedFrames + f] = newMelFrames[melFrameOffset + m]
             }
         }
 
         isFirstRun = false
         return melSpec
+    }
+
+    private fun computeFullPreEmphasis(audioData: FloatArray) {
+        preEmphasizedAudio[0] = audioData[0]
+        for (i in 1 until expectedSamples) {
+            preEmphasizedAudio[i] = audioData[i] - 0.97f * audioData[i - 1]
+        }
+        System.arraycopy(preEmphasizedAudio, 0, paddedAudio, padLength, expectedSamples)
+        refreshReflectivePadding()
+    }
+
+    private fun updatePreEmphasisTail(audioData: FloatArray) {
+        val retainedSamples = expectedSamples - stepSamples
+
+        System.arraycopy(preEmphasizedAudio, stepSamples, preEmphasizedAudio, 0, retainedSamples)
+        preEmphasizedAudio[0] = audioData[0]
+        for (i in retainedSamples until expectedSamples) {
+            preEmphasizedAudio[i] = audioData[i] - 0.97f * audioData[i - 1]
+        }
+
+        System.arraycopy(paddedAudio, padLength + stepSamples, paddedAudio, padLength, retainedSamples)
+        paddedAudio[padLength] = preEmphasizedAudio[0]
+        System.arraycopy(
+            preEmphasizedAudio,
+            retainedSamples,
+            paddedAudio,
+            padLength + retainedSamples,
+            stepSamples
+        )
+        refreshReflectivePadding()
+    }
+
+    private fun refreshReflectivePadding() {
+        for (i in 0 until padLength) {
+            paddedAudio[padLength - 1 - i] = paddedAudio[padLength + i + 1]
+            paddedAudio[padLength + expectedSamples + i] = paddedAudio[padLength + expectedSamples - 2 - i]
+        }
     }
 }
