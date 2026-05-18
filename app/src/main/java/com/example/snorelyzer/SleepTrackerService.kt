@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.snorelyzer.ml.AudioGate
 import com.example.snorelyzer.ml.AudioProcessor
 import com.example.snorelyzer.ml.SleepClassifier
 import kotlinx.coroutines.*
@@ -45,6 +46,7 @@ class SleepTrackerService : Service() {
     private var audioRecord: AudioRecord? = null
 
     private val audioProcessor: AudioProcessor by inject()
+    private val audioGate: AudioGate by inject()
     private val classifier: SleepClassifier by inject()
 
     // 320,000 samples needed for full context (10 seconds @ 32kHz)
@@ -112,6 +114,7 @@ class SleepTrackerService : Service() {
             )
 
             audioRecord?.startRecording()
+            audioGate.reset()
 
             scope.launch {
                 val tempBuffer = FloatArray(stepSamples)
@@ -157,6 +160,30 @@ class SleepTrackerService : Service() {
                     System.arraycopy(audioBuffer, stepSamples, audioBuffer, 0, totalSamples - stepSamples)
                     // Copy new data to right
                     System.arraycopy(tempBuffer, 0, audioBuffer, totalSamples - stepSamples, stepSamples)
+
+                    val gateDecision = audioGate.analyze(tempBuffer)
+                    Log.d(
+                        "AudioGate",
+                        "state=${gateDecision.state} infer=${gateDecision.shouldInfer} " +
+                            "trigger=${gateDecision.triggerType} " +
+                            "rmsDb=${"%.1f".format(gateDecision.rmsDb)} " +
+                            "relativeDb=${"%.1f".format(gateDecision.relativeDb)} " +
+                            "maxFrameRelativeDb=${"%.1f".format(gateDecision.maxFrameRelativeDb)} " +
+                            "onsetDb=${"%.1f".format(gateDecision.onsetDb)} " +
+                            "zcr=${"%.3f".format(gateDecision.zcr)} " +
+                            "zcrDelta=${"%.3f".format(gateDecision.zcrDelta)} " +
+                            "crest=${"%.2f".format(gateDecision.crestFactor)} " +
+                            "crestDelta=${"%.2f".format(gateDecision.crestDelta)} " +
+                            "activityScore=${gateDecision.activityScore} " +
+                            "stable=${gateDecision.isStableBackground} " +
+                            "reasons=${gateDecision.reasons.joinToString("|")}"
+                    )
+
+                    if (!gateDecision.shouldInfer) {
+                        // AudioProcessor caches incremental mel frames, so skipped seconds invalidate that cache.
+                        audioProcessor.reset()
+                        continue
+                    }
 
                     // Clone for processing to avoid mutation during inference
                     val processBuffer = audioBuffer.clone()
@@ -235,6 +262,7 @@ class SleepTrackerService : Service() {
         audioRecord?.release()
         audioRecord = null
         audioProcessor.reset()
+        audioGate.reset()
         scope.cancel()
         classifier.close()
         super.onDestroy()
