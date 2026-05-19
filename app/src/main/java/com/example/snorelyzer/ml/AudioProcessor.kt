@@ -179,13 +179,13 @@ class AudioProcessor(context: Context) {
         val retainedSamples = expectedSamples - stepSamples
 
         System.arraycopy(preEmphasizedAudio, stepSamples, preEmphasizedAudio, 0, retainedSamples)
-        preEmphasizedAudio[0] = audioData[0]
+
         for (i in retainedSamples until expectedSamples) {
             preEmphasizedAudio[i] = audioData[i] - 0.97f * audioData[i - 1]
         }
 
         System.arraycopy(paddedAudio, padLength + stepSamples, paddedAudio, padLength, retainedSamples)
-        paddedAudio[padLength] = preEmphasizedAudio[0]
+
         System.arraycopy(
             preEmphasizedAudio,
             retainedSamples,

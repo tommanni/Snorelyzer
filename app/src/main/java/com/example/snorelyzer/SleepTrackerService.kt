@@ -195,15 +195,9 @@ class SleepTrackerService : Service() {
                         continue
                     }
 
-                    // Clone for processing to avoid mutation during inference
-                    val processBuffer = audioBuffer.clone()
 
-                    val audioMin = processBuffer.min()
-                    val audioMax = processBuffer.max()
-                    val audioRms = sqrt(processBuffer.map { it * it }.average())
-                    Log.d("SleepTracker", "Audio stats: min=$audioMin max=$audioMax rms=$audioRms")
+                    processAndClassify(audioBuffer)
 
-                    processAndClassify(processBuffer)
                 }
             }
         } catch (e: SecurityException) {
@@ -222,11 +216,6 @@ class SleepTrackerService : Service() {
             val t0 = System.nanoTime()
             val melTensor = audioProcessor.process(buffer)
             val t1 = System.nanoTime()
-
-            val min = melTensor.min()
-            val max = melTensor.max()
-            val mean = melTensor.average()
-            Log.d("Debug", "Mel stats: min=$min max=$max mean=$mean")
 
             // 2. Inference
             val topResults = classifier.classify(melTensor, topK = 3)
