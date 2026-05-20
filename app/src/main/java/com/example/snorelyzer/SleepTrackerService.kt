@@ -125,17 +125,8 @@ class SleepTrackerService : Service() {
 
             scope.launch {
                 val tempBuffer = FloatArray(stepSamples)
-
-                // Pre-fill initial buffer
-                var initialRead = 0
-                while (initialRead < totalSamples && isRecording.get()) {
-                    val toRead = minOf(tempBuffer.size, totalSamples - initialRead)
-                    val read = audioRecord?.read(tempBuffer, 0, toRead, AudioRecord.READ_BLOCKING) ?: 0
-                    if (read > 0) {
-                        System.arraycopy(tempBuffer, 0, audioBuffer, initialRead, read)
-                        initialRead += read
-                    }
-                }
+                val paddedMLBuffer = FloatArray(totalSamples)
+                var validSamples = 0
 
                 while (isRecording.get()) {
                     // Read new chunk
@@ -167,6 +158,7 @@ class SleepTrackerService : Service() {
                     System.arraycopy(audioBuffer, stepSamples, audioBuffer, 0, totalSamples - stepSamples)
                     // Copy new data to right
                     System.arraycopy(tempBuffer, 0, audioBuffer, totalSamples - stepSamples, stepSamples)
+                    validSamples = minOf(totalSamples, validSamples + stepSamples)
 
                     val gateDecision = audioGate.analyze(tempBuffer)
                     summaryAccumulator.recordGateDecision(gateDecision)
@@ -195,9 +187,15 @@ class SleepTrackerService : Service() {
                         continue
                     }
 
+                    val finalMLInput = if (validSamples >= totalSamples) {
+                        audioBuffer
+                    } else {
+                        // Mirrored padding to fill the 10s buffer for ML
+                        fillPaddedBuffer(paddedMLBuffer, audioBuffer, validSamples)
+                        paddedMLBuffer
+                    }
 
-                    processAndClassify(audioBuffer)
-
+                    processAndClassify(finalMLInput)
                 }
             }
         } catch (e: SecurityException) {
@@ -206,6 +204,40 @@ class SleepTrackerService : Service() {
         } catch (e: Exception) {
             Log.e("SleepTracker", "Audio capture failed", e)
             stopSelf()
+        }
+    }
+
+    /**
+     * Fills the [dest] buffer by taking the [validCount] real samples from the end of [source]
+     * and mirroring them back and forth until [dest] is full.
+     */
+    private fun fillPaddedBuffer(dest: FloatArray, source: FloatArray, validCount: Int) {
+        val total = dest.size
+        // Real samples are at the end of source
+        val sourceOffset = total - validCount
+        
+        // Copy real samples to the end of dest
+        System.arraycopy(source, sourceOffset, dest, total - validCount, validCount)
+        
+        var filled = validCount
+        var forward = false // Next chunk to fill (working backwards) will be reversed (backward)
+        
+        while (filled < total) {
+            val toFill = minOf(validCount, total - filled)
+            val destPos = total - filled - toFill
+            
+            if (forward) {
+                // Copy normally
+                System.arraycopy(source, sourceOffset, dest, destPos, toFill)
+            } else {
+                // Copy reversed
+                for (i in 0 until toFill) {
+                    dest[destPos + i] = source[total - 1 - i]
+                }
+            }
+            
+            filled += toFill
+            forward = !forward
         }
     }
 
