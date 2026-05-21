@@ -47,15 +47,11 @@ class MainActivity : ComponentActivity() {
                         val latestStatus by SleepTrackerService.latestStatus.collectAsState()
                         val latestResults by SleepTrackerService.latestResults.collectAsState()
                         val isServiceRunning by SleepTrackerService.isServiceRunning.collectAsState()
-                        val nightSummary by SleepTrackerService.nightSummary.collectAsState()
-                        val nowMillis = System.currentTimeMillis()
 
                         SleepTrackerScreen(
                             latestStatus = latestStatus,
                             latestResults = latestResults,
                             isServiceRunning = isServiceRunning,
-                            nightSummary = nightSummary,
-                            nowMillis = nowMillis,
                             onStartClick = { checkPermissionsAndStart() },
                             onStopClick = { stopSleepTracker() }
                         )
@@ -70,8 +66,6 @@ class MainActivity : ComponentActivity() {
         latestStatus: String,
         latestResults: List<DetectedClassUi>,
         isServiceRunning: Boolean,
-        nightSummary: NightSummaryUi,
-        nowMillis: Long,
         onStartClick: () -> Unit,
         onStopClick: () -> Unit
     ) {
@@ -98,11 +92,6 @@ class MainActivity : ComponentActivity() {
             LatestResultsSection(
                 latestStatus = latestStatus,
                 latestResults = latestResults
-            )
-
-            NightSummarySection(
-                summary = nightSummary,
-                nowMillis = nowMillis
             )
 
             Row(
@@ -160,71 +149,6 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun NightSummarySection(
-        summary: NightSummaryUi,
-        nowMillis: Long
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Night summary",
-                style = MaterialTheme.typography.titleMedium
-            )
-
-            if (!summary.hasSession) {
-                Text(
-                    text = "No night summary yet.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                return
-            }
-
-            SummaryRow("Duration", formatDuration(summary.durationMillis(nowMillis)))
-            SummaryRow("Gate opened", "${summary.inferenceChunks}/${summary.totalChunks} (${summary.gateOpenPercent}%)")
-            SummaryRow("Skipped background", summary.skippedBackgroundChunks.toString())
-            SummaryRow("Noise floor", formatRange(summary.minNoiseFloorDb, summary.maxNoiseFloorDb, "dB"))
-            SummaryRow("Max relative dB", formatFloat(summary.maxObservedRelativeDb, "dB"))
-            SummaryRow("Max frame-relative dB", formatFloat(summary.maxObservedMaxFrameRelativeDb, "dB"))
-            SummaryRow("Max crest delta", formatFloat(summary.maxObservedCrestDelta, ""))
-
-            if (summary.triggerCounts.isNotEmpty()) {
-                Text(
-                    text = "Triggers",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                summary.triggerCounts.forEach { (trigger, count) ->
-                    SummaryRow(trigger, count.toString())
-                }
-            }
-
-            if (summary.reasonCounts.isNotEmpty()) {
-                Text(
-                    text = "Gate reasons",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                summary.reasonCounts.entries.take(5).forEach { (reason, count) ->
-                    SummaryRow(reason, count.toString())
-                }
-            }
-
-            if (summary.topLabels.isNotEmpty()) {
-                Text(
-                    text = "Top labels",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                summary.topLabels.forEach { label ->
-                    SummaryRow(
-                        label = label.label,
-                        value = "top1 ${label.top1Count}, seen ${label.appearanceCount}, avg ${label.averageConfidencePercent}%, max ${label.maxConfidencePercent}%"
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
     private fun SummaryRow(label: String, value: String) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -243,33 +167,6 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.weight(1f)
             )
         }
-    }
-
-    private fun formatDuration(durationMillis: Long): String {
-        val totalSeconds = durationMillis / 1000L
-        val hours = totalSeconds / 3600L
-        val minutes = (totalSeconds % 3600L) / 60L
-        val seconds = totalSeconds % 60L
-
-        return if (hours > 0L) {
-            "${hours}h ${minutes}m"
-        } else {
-            "${minutes}m ${seconds}s"
-        }
-    }
-
-    private fun formatRange(minValue: Float?, maxValue: Float?, suffix: String): String {
-        if (minValue == null || maxValue == null) return "-"
-        return "${formatDecimal(minValue)} to ${formatDecimal(maxValue)} $suffix".trim()
-    }
-
-    private fun formatFloat(value: Float?, suffix: String): String {
-        if (value == null) return "-"
-        return "${formatDecimal(value)} $suffix".trim()
-    }
-
-    private fun formatDecimal(value: Float): String {
-        return "%.1f".format(value)
     }
 
     private fun checkPermissionsAndStart() {
