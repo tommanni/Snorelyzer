@@ -40,10 +40,6 @@ class SleepTrackerService : Service() {
 
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning = _isServiceRunning.asStateFlow()
-
-        private val summaryAccumulator = NightSummaryAccumulator()
-        private val _nightSummary = MutableStateFlow(NightSummaryUi())
-        val nightSummary = _nightSummary.asStateFlow()
     }
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var isRecording = AtomicBoolean(false)
@@ -102,9 +98,6 @@ class SleepTrackerService : Service() {
     private fun startAudioProcessing() {
         if (isRecording.getAndSet(true)) return
 
-        summaryAccumulator.startSession(System.currentTimeMillis())
-        _nightSummary.value = summaryAccumulator.snapshot(System.currentTimeMillis())
-
         val minBufferSize = AudioRecord.getMinBufferSize(
             32000,
             AudioFormat.CHANNEL_IN_MONO,
@@ -113,7 +106,7 @@ class SleepTrackerService : Service() {
 
         try {
             audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.MIC,
                 32000,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_FLOAT,
@@ -161,8 +154,6 @@ class SleepTrackerService : Service() {
                     validSamples = minOf(totalSamples, validSamples + stepSamples)
 
                     val gateDecision = audioGate.analyze(tempBuffer)
-                    summaryAccumulator.recordGateDecision(gateDecision)
-                    _nightSummary.value = summaryAccumulator.snapshot(System.currentTimeMillis())
                     Log.d(
                         "AudioGate",
                         "state=${gateDecision.state} infer=${gateDecision.shouldInfer} " +
@@ -259,9 +250,6 @@ class SleepTrackerService : Service() {
 
             // 3. Log results
             if (topResults.isNotEmpty()) {
-                summaryAccumulator.recordClassificationResults(topResults.take(3))
-                _nightSummary.value = summaryAccumulator.snapshot(System.currentTimeMillis())
-
                 val top1 = topResults[0]
                 val top2 = if (topResults.size > 1) topResults[1] else null
 
@@ -291,8 +279,6 @@ class SleepTrackerService : Service() {
         _isServiceRunning.value = false
         _latestStatus.value = "Stopped"
         _latestResults.value = emptyList()
-        summaryAccumulator.stopSession(System.currentTimeMillis())
-        _nightSummary.value = summaryAccumulator.snapshot(System.currentTimeMillis())
         isRecording.set(false)
         audioRecord?.stop()
         audioRecord?.release()
