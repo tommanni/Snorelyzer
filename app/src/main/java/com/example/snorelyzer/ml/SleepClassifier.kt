@@ -81,6 +81,28 @@ class SleepClassifier(context: Context) {
      * Returns a list of the top classifications.
      */
     fun classify(melSpectrogram: FloatArray, topK: Int = 3): List<ClassificationResult> {
+        val probabilities = runInference(melSpectrogram)
+
+        return probabilities.mapIndexed { index, prob ->
+            ClassificationResult(index, classLabels.getOrElse(index) { "Unknown" }, prob)
+        }.sortedByDescending { it.probability }.take(topK)
+    }
+
+    fun classifyRelevant(
+        melSpectrogram: FloatArray,
+        relevantClassIndices: Set<Int>
+    ): List<ClassificationResult> {
+        val probabilities = runInference(melSpectrogram)
+
+        return relevantClassIndices
+            .filter { it in probabilities.indices }
+            .map { index ->
+                ClassificationResult(index, classLabels.getOrElse(index) { "Unknown" }, probabilities[index])
+            }
+            .sortedByDescending { it.probability }
+    }
+
+    private fun runInference(melSpectrogram: FloatArray): List<Float> {
         require(melSpectrogram.size == AudioModelConfig.MEL_TENSOR_SIZE) {
             "Expected ${AudioModelConfig.MEL_TENSOR_SIZE} mel values for " +
                 "${AudioModelConfig.N_MELS}x${AudioModelConfig.EXPECTED_FRAMES} input, got ${melSpectrogram.size}"
@@ -96,9 +118,7 @@ class SleepClassifier(context: Context) {
         // Debug: Log more probabilities with higher precision
         Log.d("SleepClassifier", "Probabilities (first 10): ${probabilities.take(10).joinToString { "%.6f".format(it) }}")
 
-        return probabilities.mapIndexed { index, prob ->
-            ClassificationResult(index, classLabels.getOrElse(index) { "Unknown" }, prob)
-        }.sortedByDescending { it.probability }.take(topK)
+        return probabilities
     }
 
     fun close() {
