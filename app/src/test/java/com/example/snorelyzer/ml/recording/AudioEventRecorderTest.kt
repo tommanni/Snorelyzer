@@ -1,6 +1,7 @@
 package com.example.snorelyzer.ml.recording
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,6 +30,8 @@ class AudioEventRecorderTest {
             windowStartMillis = 5_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
+        assertTrue(recorder.shouldForceInference)
+
         recorder.stopSession(endedAtMillis = 10_000L)
 
         val episode = recorder.completedEpisodeMetadata.single()
@@ -50,6 +53,9 @@ class AudioEventRecorderTest {
             windowStartMillis = 11_000L,
             occurringGroups = emptyList()
         )
+        assertFalse(recorder.shouldForceInference)
+        assertTrue(recorder.completedEpisodeMetadata.isEmpty())
+
         recorder.stopSession(endedAtMillis = 12_000L)
 
         val span = recorder.completedEpisodeMetadata.single().eventSpans.single()
@@ -85,6 +91,7 @@ class AudioEventRecorderTest {
             windowStartMillis = 29_000L,
             occurringGroups = emptyList()
         )
+        assertFalse(recorder.shouldForceInference)
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
 
         recorder.onClassificationWindow(
@@ -95,6 +102,37 @@ class AudioEventRecorderTest {
         val episode = recorder.completedEpisodeMetadata.single()
         assertEquals(8_000L, episode.clipStartMillis)
         assertEquals(14_000L, episode.clipEndMillis)
+    }
+
+    @Test
+    fun newHitDuringPendingTimeoutMergesIntoSameEpisode() {
+        val recorder = AudioEventRecorder()
+
+        recorder.startSession(startedAtMillis = 0L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.onClassificationWindow(
+            windowStartMillis = 11_000L,
+            occurringGroups = emptyList()
+        )
+        assertFalse(recorder.shouldForceInference)
+
+        recorder.onClassificationWindow(
+            windowStartMillis = 20_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Gasp, 0.40f))
+        )
+        assertTrue(recorder.shouldForceInference)
+        recorder.stopSession(endedAtMillis = 25_000L)
+
+        val episode = recorder.completedEpisodeMetadata.single()
+        assertEquals(
+            setOf(RecordedEventGroup.Snoring, RecordedEventGroup.Gasp),
+            episode.groups
+        )
+        assertEquals(8_000L, episode.clipStartMillis)
+        assertEquals(24_000L, episode.clipEndMillis)
     }
 
     @Test
