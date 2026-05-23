@@ -16,12 +16,14 @@ import androidx.core.app.NotificationCompat
 import com.example.snorelyzer.ml.AudioGate
 import com.example.snorelyzer.ml.AudioProcessor
 import com.example.snorelyzer.ml.SleepClassifier
+import com.example.snorelyzer.ml.recording.AudioEventRecorder
+import com.example.snorelyzer.ml.recording.RecordedEventCatalog
+import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.koin.android.ext.android.inject
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.sqrt
 import kotlin.time.Duration.Companion.milliseconds
 
 data class DetectedClassUi(
@@ -48,6 +50,7 @@ class SleepTrackerService : Service() {
     private val audioProcessor: AudioProcessor by inject()
     private val audioGate: AudioGate by inject()
     private val classifier: SleepClassifier by inject()
+    private val audioEventRecorder: AudioEventRecorder by inject()
 
     // 320,000 samples needed for full context (10 seconds @ 32kHz)
     // We step by 32,000 samples per inference (1 second)
@@ -115,11 +118,14 @@ class SleepTrackerService : Service() {
 
             audioRecord?.startRecording()
             audioGate.reset()
+            val sessionStartedAtMillis = System.currentTimeMillis()
+            audioEventRecorder.startSession(sessionStartedAtMillis)
 
             scope.launch {
                 val tempBuffer = FloatArray(stepSamples)
                 val paddedMLBuffer = FloatArray(totalSamples)
                 var validSamples = 0
+                var capturedSamples = 0L
 
                 while (isRecording.get()) {
                     // Read new chunk
@@ -147,11 +153,17 @@ class SleepTrackerService : Service() {
 
                     if (!isRecording.get()) break
 
+                    val chunkStartMillis = sessionStartedAtMillis + capturedSamples / 32
+                    audioEventRecorder.onAudioChunk(tempBuffer, chunkStartMillis)
+                    capturedSamples += stepSamples
+
                     // Shift buffer left by stepSamples
                     System.arraycopy(audioBuffer, stepSamples, audioBuffer, 0, totalSamples - stepSamples)
                     // Copy new data to right
                     System.arraycopy(tempBuffer, 0, audioBuffer, totalSamples - stepSamples, stepSamples)
                     validSamples = minOf(totalSamples, validSamples + stepSamples)
+                    val mlWindowEndMillis = sessionStartedAtMillis + capturedSamples / 32
+                    val mlWindowStartMillis = mlWindowEndMillis - (validSamples / 32)
 
                     val gateDecision = audioGate.analyze(tempBuffer)
                     Log.d(
@@ -175,6 +187,9 @@ class SleepTrackerService : Service() {
                     if (!gateDecision.shouldInfer) {
                         // AudioProcessor caches incremental mel frames, so skipped seconds invalidate that cache.
                         audioProcessor.reset()
+                        audioEventRecorder.onClassificationWindow(mlWindowStartMillis, emptyList())
+                        _latestStatus.value = "Listening for sleep events..."
+                        _latestResults.value = emptyList()
                         continue
                     }
 
@@ -186,7 +201,7 @@ class SleepTrackerService : Service() {
                         paddedMLBuffer
                     }
 
-                    processAndClassify(finalMLInput)
+                    processAndClassify(finalMLInput, mlWindowStartMillis)
                 }
             }
         } catch (e: SecurityException) {
@@ -232,7 +247,7 @@ class SleepTrackerService : Service() {
         }
     }
 
-    private fun processAndClassify(buffer: FloatArray) {
+    private fun processAndClassify(buffer: FloatArray, windowStartMillis: Long) {
         val start = System.currentTimeMillis()
         try {
             // 1. DSP
@@ -241,30 +256,43 @@ class SleepTrackerService : Service() {
             val t1 = System.nanoTime()
 
             // 2. Inference
-            val topResults = classifier.classify(melTensor, topK = 3)
+            val relevantResults = classifier.classifyRelevant(
+                melTensor,
+                RecordedEventCatalog.relevantClassIndices
+            )
+            val groupResults = RecordedEventCatalog.aggregate(
+                relevantResults,
+                audioEventRecorder.config
+            )
+            val occurringGroupResults = groupResults.filter { it.isOccurring }
             val t2 = System.nanoTime()
+            audioEventRecorder.onClassificationWindow(windowStartMillis, occurringGroupResults)
             Log.d(
                 "Timing",
                 "Preprocessing: ${(t1 - t0) / 1_000_000}ms, Inference: ${(t2 - t1) / 1_000_000}ms"
             )
 
             // 3. Log results
-            if (topResults.isNotEmpty()) {
-                val top1 = topResults[0]
-                val top2 = if (topResults.size > 1) topResults[1] else null
+            if (groupResults.isNotEmpty()) {
+                val top1 = groupResults[0]
+                val top2 = if (groupResults.size > 1) groupResults[1] else null
 
                 val logMsg = buildString {
                     append("Inference ${System.currentTimeMillis() - start}ms | ")
-                    append("Top: ${top1.label} [#${top1.index}] (${"%.3f".format(top1.probability)})")
+                    append("Top relevant: ${top1.group.displayLabel()} via ${top1.sourceLabel} (${"%.3f".format(top1.probability)})")
                     if (top2 != null) {
-                        append(" | 2nd: ${top2.label} [#${top2.index}] (${"%.3f".format(top2.probability)})")
+                        append(" | 2nd: ${top2.group.displayLabel()} via ${top2.sourceLabel} (${"%.3f".format(top2.probability)})")
                     }
                 }
                 Log.d("SleepTracker", logMsg)
-                _latestStatus.value = ""
-                _latestResults.value = topResults.take(3).map { result ->
+                _latestStatus.value = if (occurringGroupResults.isEmpty()) {
+                    "Listening for sleep events..."
+                } else {
+                    ""
+                }
+                _latestResults.value = occurringGroupResults.map { result ->
                     DetectedClassUi(
-                        label = result.label,
+                        label = result.group.displayLabel(),
                         probabilityPercent = (result.probability * 100).toInt()
                     )
                 }
@@ -272,6 +300,15 @@ class SleepTrackerService : Service() {
 
         } catch (e: Exception) {
             Log.e("SleepTracker", "Processing failed", e)
+        }
+    }
+
+    private fun RecordedEventGroup.displayLabel(): String {
+        return when (this) {
+            RecordedEventGroup.Snoring -> "Snoring"
+            RecordedEventGroup.Gasp -> "Gasp"
+            RecordedEventGroup.Cough -> "Cough"
+            RecordedEventGroup.SleepTalking -> "Sleep talking"
         }
     }
 
@@ -285,6 +322,8 @@ class SleepTrackerService : Service() {
         audioRecord = null
         audioProcessor.reset()
         audioGate.reset()
+        audioEventRecorder.stopSession(System.currentTimeMillis())
+        audioEventRecorder.reset()
         scope.cancel()
         classifier.close()
         super.onDestroy()
