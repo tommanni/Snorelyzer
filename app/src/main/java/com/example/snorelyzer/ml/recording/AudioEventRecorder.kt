@@ -52,6 +52,7 @@ class AudioEventRecorder(
 ) {
     private var session: RecordingSessionMetadata? = null
     private var activeEpisode: ActiveEpisode? = null
+    private var state: RecorderState = RecorderState.Idle
     private val activeSpans = mutableMapOf<RecordedEventGroup, ActiveSpan>()
     private val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
 
@@ -64,6 +65,9 @@ class AudioEventRecorder(
 
     val completedEpisodeMetadata: List<RecordingEpisodeMetadata>
         get() = completedEpisodes.toList()
+
+    val shouldForceInference: Boolean
+        get() = state == RecorderState.ActiveEvent
 
     fun startSession(startedAtMillis: Long) {
         reset()
@@ -89,6 +93,7 @@ class AudioEventRecorder(
             .associate { it.group to it.probability }
 
         if (hits.isNotEmpty()) {
+            state = RecorderState.ActiveEvent
             val episode = activeEpisode ?: ActiveEpisode(
                 episodeId = "${currentSession.sessionId}-episode-$nextEpisodeNumber",
                 sessionId = currentSession.sessionId,
@@ -120,6 +125,8 @@ class AudioEventRecorder(
                     span.peakProbability = maxOf(span.peakProbability, probability)
                 }
             }
+        } else if (activeEpisode != null && state == RecorderState.ActiveEvent) {
+            state = RecorderState.PendingEpisodeClose
         }
 
         closeDroppedSpans(hits.keys)
@@ -137,6 +144,7 @@ class AudioEventRecorder(
     fun reset() {
         session = null
         activeEpisode = null
+        state = RecorderState.Idle
         activeSpans.clear()
         completedEpisodes.clear()
         nextEpisodeNumber = 1
@@ -187,7 +195,14 @@ class AudioEventRecorder(
             peakProbabilities = episode.peakProbabilities.toMap()
         )
         activeEpisode = null
+        state = RecorderState.Idle
         session = session?.copy(completedEpisodeCount = completedEpisodes.size)
+    }
+
+    private enum class RecorderState {
+        Idle,
+        ActiveEvent,
+        PendingEpisodeClose
     }
 
     private data class ActiveEpisode(

@@ -169,6 +169,7 @@ class SleepTrackerService : Service() {
                     Log.d(
                         "AudioGate",
                         "state=${gateDecision.state} infer=${gateDecision.shouldInfer} " +
+                            "recorderForce=${audioEventRecorder.shouldForceInference} " +
                             "trigger=${gateDecision.triggerType} " +
                             "noiseFloorDb=${"%.1f".format(gateDecision.noiseFloorDb)} " +
                             "rmsDb=${"%.1f".format(gateDecision.rmsDb)} " +
@@ -184,7 +185,8 @@ class SleepTrackerService : Service() {
                             "reasons=${gateDecision.reasons.joinToString("|")}"
                     )
 
-                    if (!gateDecision.shouldInfer) {
+                    val shouldInfer = gateDecision.shouldInfer || audioEventRecorder.shouldForceInference
+                    if (!shouldInfer) {
                         // AudioProcessor caches incremental mel frames, so skipped seconds invalidate that cache.
                         audioProcessor.reset()
                         audioEventRecorder.onClassificationWindow(mlWindowStartMillis, emptyList())
