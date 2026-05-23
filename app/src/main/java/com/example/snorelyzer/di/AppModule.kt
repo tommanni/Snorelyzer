@@ -3,6 +3,7 @@ package com.example.snorelyzer.di
 import com.example.snorelyzer.ml.AudioGate
 import com.example.snorelyzer.ml.AudioProcessor
 import com.example.snorelyzer.ml.SleepClassifier
+import com.example.snorelyzer.ml.recording.AudioEventRecorder
 import com.example.snorelyzer.presentation.record.RecordViewModel
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.viewModelOf
@@ -12,5 +13,6 @@ val appModule = module {
     factoryOf(::AudioProcessor)
     factoryOf(::AudioGate)
     factoryOf(::SleepClassifier)
+    factory { AudioEventRecorder() }
     viewModelOf(::RecordViewModel)
 }
