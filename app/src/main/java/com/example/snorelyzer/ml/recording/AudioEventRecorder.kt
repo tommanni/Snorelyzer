@@ -7,6 +7,15 @@ enum class RecordedEventGroup {
     SleepTalking
 }
 
+fun RecordedEventGroup.displayLabel(): String {
+    return when (this) {
+        RecordedEventGroup.Snoring -> "Snoring"
+        RecordedEventGroup.Gasp -> "Gasp"
+        RecordedEventGroup.Cough -> "Cough"
+        RecordedEventGroup.SleepTalking -> "Sleep talking"
+    }
+}
+
 data class RecordedEventConfig(
     val thresholds: Map<RecordedEventGroup, Float> = mapOf(
         RecordedEventGroup.Snoring to 0.20f,
