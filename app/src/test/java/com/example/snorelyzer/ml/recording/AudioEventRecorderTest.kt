@@ -9,7 +9,7 @@ class AudioEventRecorderTest {
 
     @Test
     fun breathingDoesNotTriggerEpisode() {
-        val recorder = AudioEventRecorder()
+        val recorder = testRecorder()
 
         recorder.startSession(startedAtMillis = 0L)
         recorder.onClassificationWindow(
@@ -23,7 +23,8 @@ class AudioEventRecorderTest {
 
     @Test
     fun episodeStartsOnFirstAboveThresholdTrackedClass() {
-        val recorder = testRecorder()
+        val writer = FakeAudioClipWriter()
+        val recorder = testRecorder(writer = writer)
 
         recorder.startSession(startedAtMillis = 1_000L)
         recorder.feedAudio(durationMillis = 20_000L)
@@ -39,6 +40,11 @@ class AudioEventRecorderTest {
         assertEquals(12_000L, episode.clipStartMillis)
         assertEquals(17_000L, episode.clipEndMillis)
         assertEquals(setOf(RecordedEventGroup.Snoring), episode.groups)
+        assertEquals("fake/session-1000-episode-1.wav", episode.filePath)
+        assertEquals(1_000, episode.sampleRate)
+        assertEquals(5_000L, episode.durationMillis)
+        assertEquals(1, writer.requests.size)
+        assertEquals(5_000, writer.requests.single().samples.size)
     }
 
     @Test
@@ -68,7 +74,7 @@ class AudioEventRecorderTest {
 
     @Test
     fun belowThresholdGroupResultDoesNotStartEpisode() {
-        val recorder = AudioEventRecorder()
+        val recorder = testRecorder()
 
         recorder.startSession(startedAtMillis = 0L)
         recorder.onClassificationWindow(
@@ -199,7 +205,8 @@ class AudioEventRecorderTest {
 
     @Test
     fun invalidClampedBoundaryDoesNotEmitEpisodeMetadata() {
-        val recorder = testRecorder()
+        val writer = FakeAudioClipWriter()
+        val recorder = testRecorder(writer = writer)
 
         recorder.startSession(startedAtMillis = 0L)
         recorder.feedAudio(startMillis = 0L, durationMillis = 16_000L)
@@ -210,6 +217,24 @@ class AudioEventRecorderTest {
         recorder.stopSession(endedAtMillis = 16_000L)
 
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
+        assertTrue(writer.requests.isEmpty())
+    }
+
+    @Test
+    fun failedClipWriteDoesNotEmitEpisodeMetadata() {
+        val writer = FakeAudioClipWriter(shouldThrow = true)
+        val recorder = testRecorder(writer = writer)
+
+        recorder.startSession(startedAtMillis = 0L)
+        recorder.feedAudio(durationMillis = 30_000L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.stopSession(endedAtMillis = 30_000L)
+
+        assertTrue(recorder.completedEpisodeMetadata.isEmpty())
+        assertEquals(1, writer.requests.size)
     }
 
     private fun groupResult(
@@ -224,12 +249,16 @@ class AudioEventRecorderTest {
         )
     }
 
-    private fun testRecorder(bufferDurationMillis: Long = 50_000L): AudioEventRecorder {
+    private fun testRecorder(
+        bufferDurationMillis: Long = 50_000L,
+        writer: FakeAudioClipWriter = FakeAudioClipWriter()
+    ): AudioEventRecorder {
         return AudioEventRecorder(
-            RecordedEventConfig(
+            config = RecordedEventConfig(
                 rollingBufferDurationMillis = bufferDurationMillis,
                 sampleRate = 1_000
-            )
+            ),
+            clipWriter = writer
         )
     }
 
@@ -246,6 +275,22 @@ class AudioEventRecorderTest {
                 chunkStartMillis = startMillis + elapsedMillis
             )
             elapsedMillis += currentChunkDuration
+        }
+    }
+
+    private class FakeAudioClipWriter(
+        private val shouldThrow: Boolean = false
+    ) : AudioClipWriter {
+        val requests = mutableListOf<AudioClipWriteRequest>()
+
+        override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult {
+            requests += request
+            if (shouldThrow) error("Write failed")
+            return AudioClipWriteResult(
+                filePath = "fake/${request.episodeId}.wav",
+                sampleRate = request.sampleRate,
+                durationMillis = request.samples.size * 1_000L / request.sampleRate
+            )
         }
     }
 }

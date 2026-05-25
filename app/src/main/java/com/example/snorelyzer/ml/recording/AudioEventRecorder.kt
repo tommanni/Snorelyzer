@@ -56,11 +56,14 @@ data class RecordingEpisodeMetadata(
     val groups: Set<RecordedEventGroup>,
     val eventSpans: List<EventSpanMetadata>,
     val peakProbabilities: Map<RecordedEventGroup, Float>,
+    val sampleRate: Int,
+    val durationMillis: Long,
     val filePath: String? = null
 )
 
 class AudioEventRecorder(
-    val config: RecordedEventConfig = RecordedEventConfig()
+    val config: RecordedEventConfig = RecordedEventConfig(),
+    private val clipWriter: AudioClipWriter
 ) {
     private val rollingBuffer = RollingAudioBuffer(
         sampleRate = config.sampleRate,
@@ -206,6 +209,32 @@ class AudioEventRecorder(
             session = session?.copy(completedEpisodeCount = completedEpisodes.size)
             return
         }
+        val samples = rollingBuffer.extract(
+            clipBoundary.startMillis,
+            clipBoundary.endMillis
+        ) ?: run {
+            activeEpisode = null
+            state = RecorderState.Idle
+            session = session?.copy(completedEpisodeCount = completedEpisodes.size)
+            return
+        }
+        val writeResult = runCatching {
+            clipWriter.writeClip(
+                AudioClipWriteRequest(
+                    episodeId = episode.episodeId,
+                    sessionId = episode.sessionId,
+                    samples = samples,
+                    sampleRate = config.sampleRate,
+                    clipStartMillis = clipBoundary.startMillis,
+                    clipEndMillis = clipBoundary.endMillis
+                )
+            )
+        }.getOrNull() ?: run {
+            activeEpisode = null
+            state = RecorderState.Idle
+            session = session?.copy(completedEpisodeCount = completedEpisodes.size)
+            return
+        }
 
         completedEpisodes += RecordingEpisodeMetadata(
             episodeId = episode.episodeId,
@@ -215,7 +244,10 @@ class AudioEventRecorder(
             dominantGroup = dominantGroup,
             groups = episode.groups.toSet(),
             eventSpans = episode.eventSpans.toList(),
-            peakProbabilities = episode.peakProbabilities.toMap()
+            peakProbabilities = episode.peakProbabilities.toMap(),
+            sampleRate = writeResult.sampleRate,
+            durationMillis = writeResult.durationMillis,
+            filePath = writeResult.filePath
         )
         activeEpisode = null
         state = RecorderState.Idle
