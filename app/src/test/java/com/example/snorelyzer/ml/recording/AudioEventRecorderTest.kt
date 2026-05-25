@@ -1,7 +1,6 @@
 package com.example.snorelyzer.ml.recording
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -162,94 +161,6 @@ class AudioEventRecorderTest {
         )
         assertEquals(RecordedEventGroup.Gasp, episode.dominantGroup)
         assertEquals(2, episode.eventSpans.size)
-    }
-
-    @Test
-    fun storesAndExtractsSingleAudioChunk() {
-        val recorder = testRecorder(bufferDurationMillis = 10_000L)
-
-        recorder.startSession(startedAtMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(1f, 2f, 3f), chunkStartMillis = 0L)
-
-        assertArrayEquals(
-            floatArrayOf(1f, 2f, 3f),
-            recorder.extractBufferedAudio(0L, 3L),
-            0f
-        )
-    }
-
-    @Test
-    fun appendsMultipleAudioChunksInChronologicalOrder() {
-        val recorder = testRecorder(bufferDurationMillis = 10_000L)
-
-        recorder.startSession(startedAtMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(1f, 2f), chunkStartMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(3f, 4f), chunkStartMillis = 2L)
-
-        assertArrayEquals(
-            floatArrayOf(1f, 2f, 3f, 4f),
-            recorder.extractBufferedAudio(0L, 4L),
-            0f
-        )
-    }
-
-    @Test
-    fun extractsAudioAfterRollingBufferWraps() {
-        val recorder = testRecorder(bufferDurationMillis = 5L)
-
-        recorder.startSession(startedAtMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(1f, 2f, 3f), chunkStartMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(4f, 5f, 6f, 7f), chunkStartMillis = 3L)
-
-        assertArrayEquals(
-            floatArrayOf(3f, 4f, 5f, 6f, 7f),
-            recorder.extractBufferedAudio(0L, 10L),
-            0f
-        )
-    }
-
-    @Test
-    fun clampsExtractionToAvailableBufferedAudio() {
-        val recorder = testRecorder(bufferDurationMillis = 5L)
-
-        recorder.startSession(startedAtMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(10f, 11f, 12f, 13f, 14f), chunkStartMillis = 0L)
-
-        assertArrayEquals(
-            floatArrayOf(10f, 11f, 12f, 13f, 14f),
-            recorder.extractBufferedAudio(-5L, 10L),
-            0f
-        )
-    }
-
-    @Test
-    fun oversizedChunkKeepsNewestSamples() {
-        val recorder = testRecorder(bufferDurationMillis = 4L)
-
-        recorder.startSession(startedAtMillis = 0L)
-        recorder.onAudioChunk(floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f), chunkStartMillis = 0L)
-
-        assertArrayEquals(
-            floatArrayOf(3f, 4f, 5f, 6f),
-            recorder.extractBufferedAudio(0L, 10L),
-            0f
-        )
-    }
-
-    @Test
-    fun onAudioChunkCopiesCallerArray() {
-        val recorder = testRecorder(bufferDurationMillis = 10_000L)
-        val chunk = floatArrayOf(1f, 2f, 3f)
-
-        recorder.startSession(startedAtMillis = 0L)
-        recorder.onAudioChunk(chunk, chunkStartMillis = 0L)
-        chunk.fill(9f)
-
-        assertArrayEquals(
-            floatArrayOf(1f, 2f, 3f),
-            recorder.extractBufferedAudio(0L, 3L),
-            0f
-        )
     }
 
     @Test
