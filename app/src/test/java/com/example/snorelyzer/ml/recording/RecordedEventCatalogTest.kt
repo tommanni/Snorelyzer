@@ -13,7 +13,7 @@ class RecordedEventCatalogTest {
         assertFalse(RecordedEventCatalog.relevantClassIndices.contains(41))
 
         val results = RecordedEventCatalog.aggregate(
-            listOf(ClassificationResult(41, "Breathing", 0.99f))
+            listOf(ClassificationResult(41, 0.99f))
         )
 
         assertTrue(results.isEmpty())
@@ -23,9 +23,9 @@ class RecordedEventCatalogTest {
     fun gaspUmbrellaLabelsAggregateToGasp() {
         val results = RecordedEventCatalog.aggregate(
             listOf(
-                ClassificationResult(44, "Gasp", 0.26f),
-                ClassificationResult(46, "Snort", 0.50f),
-                ClassificationResult(50, "Sniff", 0.30f)
+                ClassificationResult(44, 0.26f),
+                ClassificationResult(46, 0.50f),
+                ClassificationResult(50, 0.30f)
             )
         )
 
@@ -39,14 +39,14 @@ class RecordedEventCatalogTest {
     @Test
     fun speechLabelsAggregateToSleepTalking() {
         val labels = listOf(
-            ClassificationResult(0, "Speech", 0.26f),
-            ClassificationResult(1, "Male speech, man speaking", 0.27f),
-            ClassificationResult(2, "Female speech, woman speaking", 0.28f),
-            ClassificationResult(3, "Child speech, kid speaking", 0.29f),
-            ClassificationResult(4, "Conversation", 0.30f),
-            ClassificationResult(5, "Narration, monologue", 0.31f),
-            ClassificationResult(15, "Whispering", 0.60f),
-            ClassificationResult(70, "Hubbub, speech noise, speech babble", 0.32f)
+            ClassificationResult(0, 0.26f),
+            ClassificationResult(1, 0.27f),
+            ClassificationResult(2, 0.28f),
+            ClassificationResult(3, 0.29f),
+            ClassificationResult(4, 0.30f),
+            ClassificationResult(5, 0.31f),
+            ClassificationResult(15, 0.60f),
+            ClassificationResult(70, 0.32f)
         )
 
         val sleepTalking = RecordedEventCatalog.aggregate(labels).single()
@@ -60,7 +60,7 @@ class RecordedEventCatalogTest {
     @Test
     fun belowThresholdGroupIsAggregatedButNotOccurring() {
         val snoring = RecordedEventCatalog.aggregate(
-            listOf(ClassificationResult(43, "Snoring", 0.10f))
+            listOf(ClassificationResult(43, 0.10f))
         ).single()
 
         assertEquals(RecordedEventGroup.Snoring, snoring.group)
