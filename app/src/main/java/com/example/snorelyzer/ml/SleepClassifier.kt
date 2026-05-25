@@ -1,7 +1,6 @@
 package com.example.snorelyzer.ml
 
 import android.content.Context
-import android.util.Log
 import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
@@ -9,14 +8,12 @@ import kotlin.math.exp
 
 data class ClassificationResult(
     val index: Int,
-    val label: String,
     val probability: Float
 )
 
 class SleepClassifier(context: Context) {
     private val environment: Environment = Environment.create()
     private val model: CompiledModel
-    private val classLabels = Array(527) { "Unknown" }
 
     // Allocate buffers when they are accessed the first time using lazy
     private val inputBuffers by lazy { model.createInputBuffers() }
@@ -33,7 +30,20 @@ class SleepClassifier(context: Context) {
         )
 
         validateInputShape()
-        loadLabels(context)
+    }
+
+    fun classifyRelevant(
+        melSpectrogram: FloatArray,
+        relevantClassIndices: Set<Int>
+    ): List<ClassificationResult> {
+        val probabilities = runInference(melSpectrogram)
+
+        return relevantClassIndices
+            .filter { it in probabilities.indices }
+            .map { index ->
+                ClassificationResult(index, probabilities[index])
+            }
+            .sortedByDescending { it.probability }
     }
 
     private fun validateInputShape() {
@@ -49,47 +59,6 @@ class SleepClassifier(context: Context) {
         }
     }
 
-    private fun loadLabels(context: Context) {
-        try {
-            context.assets.open("class_labels_indices.csv").bufferedReader().useLines { lines ->
-                // drop(1) skips the header row
-                lines.drop(1).forEach { line ->
-                    val firstComma = line.indexOf(',')
-                    val secondComma = line.indexOf(',', firstComma + 1)
-
-                    if (firstComma != -1 && secondComma != -1) {
-                        val indexStr = line.substring(0, firstComma)
-                        // Extracts the label and removes quotes
-                        val labelStr = line.substring(secondComma + 1).removeSurrounding("\"")
-
-                        val index = indexStr.toIntOrNull()
-
-                        // Assign to array if valid
-                        if (index != null && index in classLabels.indices) {
-                            classLabels[index] = labelStr
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("AudioClassifier", "Failed to load AudioSet labels from assets", e)
-        }
-    }
-
-    fun classifyRelevant(
-        melSpectrogram: FloatArray,
-        relevantClassIndices: Set<Int>
-    ): List<ClassificationResult> {
-        val probabilities = runInference(melSpectrogram)
-
-        return relevantClassIndices
-            .filter { it in probabilities.indices }
-            .map { index ->
-                ClassificationResult(index, classLabels.getOrElse(index) { "Unknown" }, probabilities[index])
-            }
-            .sortedByDescending { it.probability }
-    }
-
     private fun runInference(melSpectrogram: FloatArray): List<Float> {
         require(melSpectrogram.size == AudioModelConfig.MEL_TENSOR_SIZE) {
             "Expected ${AudioModelConfig.MEL_TENSOR_SIZE} mel values for " +
@@ -101,12 +70,7 @@ class SleepClassifier(context: Context) {
         val logits = outputBuffers[0].readFloat()
 
         // Apply sigmoid to convert logits to probabilities
-        val probabilities = logits.map { 1.0f / (1.0f + exp(-it)) }
-
-        // Debug: Log more probabilities with higher precision
-        Log.d("SleepClassifier", "Probabilities (first 10): ${probabilities.take(10).joinToString { "%.6f".format(it) }}")
-
-        return probabilities
+        return logits.map { 1.0f / (1.0f + exp(-it)) }
     }
 
     fun close() {
