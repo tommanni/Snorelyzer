@@ -18,7 +18,7 @@ import com.example.snorelyzer.ml.AudioProcessor
 import com.example.snorelyzer.ml.SleepClassifier
 import com.example.snorelyzer.ml.recording.AudioEventRecorder
 import com.example.snorelyzer.ml.recording.RecordedEventCatalog
-import com.example.snorelyzer.ml.recording.RecordedEventGroup
+import com.example.snorelyzer.ml.recording.displayLabel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +46,7 @@ class SleepTrackerService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var isRecording = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
+    private var processingJob: Job? = null
 
     private val audioProcessor: AudioProcessor by inject()
     private val audioGate: AudioGate by inject()
@@ -121,7 +122,7 @@ class SleepTrackerService : Service() {
             val sessionStartedAtMillis = System.currentTimeMillis()
             audioEventRecorder.startSession(sessionStartedAtMillis)
 
-            scope.launch {
+            processingJob = scope.launch {
                 val tempBuffer = FloatArray(stepSamples)
                 val mlInputBuffer = FloatArray(totalSamples)
                 val paddedMLBuffer = FloatArray(totalSamples)
@@ -129,11 +130,11 @@ class SleepTrackerService : Service() {
                 var writeIndex = 0
                 var capturedSamples = 0L
 
-                while (isRecording.get()) {
+                while (isRecording.get() && isActive) {
                     // Read new chunk
                     var read = 0
                     var retryCount = 0
-                    while (read < stepSamples && isRecording.get()) {
+                    while (read < stepSamples && isRecording.get() && isActive) {
                         val chunk = audioRecord?.read(tempBuffer, read, stepSamples - read, AudioRecord.READ_BLOCKING) ?: 0
                         if (chunk > 0) {
                             read += chunk
@@ -153,7 +154,7 @@ class SleepTrackerService : Service() {
                         }
                     }
 
-                    if (!isRecording.get()) break
+                    if (!isRecording.get() || !isActive) break
 
                     val chunkStartMillis = sessionStartedAtMillis + capturedSamples / 32
                     audioEventRecorder.onAudioChunk(tempBuffer, chunkStartMillis)
@@ -308,22 +309,30 @@ class SleepTrackerService : Service() {
         }
     }
 
-    private fun RecordedEventGroup.displayLabel(): String {
-        return when (this) {
-            RecordedEventGroup.Snoring -> "Snoring"
-            RecordedEventGroup.Gasp -> "Gasp"
-            RecordedEventGroup.Cough -> "Cough"
-            RecordedEventGroup.SleepTalking -> "Sleep talking"
-        }
-    }
-
     override fun onDestroy() {
         _isServiceRunning.value = false
         _latestStatus.value = "Stopped"
         _latestResults.value = emptyList()
         isRecording.set(false)
-        audioRecord?.stop()
-        audioRecord?.release()
+        runCatching { audioRecord?.stop() }
+
+        runBlocking {
+            val stoppedCleanly = withTimeoutOrNull(2_000L.milliseconds) {
+                processingJob?.join()
+                true
+            } == true
+
+            if (!stoppedCleanly) {
+                processingJob?.cancel()
+                withTimeoutOrNull(500L.milliseconds) {
+                    processingJob?.join()
+                }
+            }
+        }
+
+        processingJob = null
+
+        runCatching { audioRecord?.release() }
         audioRecord = null
         audioProcessor.reset()
         audioGate.reset()
