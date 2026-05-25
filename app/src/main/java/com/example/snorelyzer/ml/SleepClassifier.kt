@@ -76,18 +76,6 @@ class SleepClassifier(context: Context) {
         }
     }
 
-    /**
-     * Classifies a 64x1000 Mel-spectrogram tensor (flattened to 64,000 elements).
-     * Returns a list of the top classifications.
-     */
-    fun classify(melSpectrogram: FloatArray, topK: Int = 3): List<ClassificationResult> {
-        val probabilities = runInference(melSpectrogram)
-
-        return probabilities.mapIndexed { index, prob ->
-            ClassificationResult(index, classLabels.getOrElse(index) { "Unknown" }, prob)
-        }.sortedByDescending { it.probability }.take(topK)
-    }
-
     fun classifyRelevant(
         melSpectrogram: FloatArray,
         relevantClassIndices: Set<Int>
