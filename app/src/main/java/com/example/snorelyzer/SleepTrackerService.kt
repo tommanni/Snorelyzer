@@ -123,8 +123,10 @@ class SleepTrackerService : Service() {
 
             scope.launch {
                 val tempBuffer = FloatArray(stepSamples)
+                val mlInputBuffer = FloatArray(totalSamples)
                 val paddedMLBuffer = FloatArray(totalSamples)
                 var validSamples = 0
+                var writeIndex = 0
                 var capturedSamples = 0L
 
                 while (isRecording.get()) {
@@ -157,10 +159,8 @@ class SleepTrackerService : Service() {
                     audioEventRecorder.onAudioChunk(tempBuffer, chunkStartMillis)
                     capturedSamples += stepSamples
 
-                    // Shift buffer left by stepSamples
-                    System.arraycopy(audioBuffer, stepSamples, audioBuffer, 0, totalSamples - stepSamples)
-                    // Copy new data to right
-                    System.arraycopy(tempBuffer, 0, audioBuffer, totalSamples - stepSamples, stepSamples)
+                    System.arraycopy(tempBuffer, 0, audioBuffer, writeIndex, stepSamples)
+                    writeIndex = (writeIndex + stepSamples) % totalSamples
                     validSamples = minOf(totalSamples, validSamples + stepSamples)
                     val mlWindowEndMillis = sessionStartedAtMillis + capturedSamples / 32
                     val mlWindowStartMillis = mlWindowEndMillis - (validSamples / 32)
@@ -196,10 +196,13 @@ class SleepTrackerService : Service() {
                     }
 
                     val finalMLInput = if (validSamples >= totalSamples) {
-                        audioBuffer
+                        System.arraycopy(audioBuffer, writeIndex, mlInputBuffer, 0, totalSamples - writeIndex)
+                        System.arraycopy(audioBuffer, 0, mlInputBuffer, totalSamples - writeIndex, writeIndex)
+                        mlInputBuffer
                     } else {
                         // Mirrored padding to fill the 10s buffer for ML
-                        fillPaddedBuffer(paddedMLBuffer, audioBuffer, validSamples)
+                        System.arraycopy(audioBuffer, 0, mlInputBuffer, totalSamples - validSamples, validSamples)
+                        fillPaddedBuffer(paddedMLBuffer, mlInputBuffer, validSamples)
                         paddedMLBuffer
                     }
 
