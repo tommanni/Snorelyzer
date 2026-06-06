@@ -204,6 +204,34 @@ class AudioEventRecorderTest {
     }
 
     @Test
+    fun clipBoundaryClampsToMaxClipDuration() {
+        val writer = FakeAudioClipWriter()
+        val recorder = testRecorder(
+            maxClipDurationMillis = 8_000L,
+            writer = writer
+        )
+
+        recorder.startSession(startedAtMillis = 0L)
+        recorder.feedAudio(durationMillis = 50_000L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.onClassificationWindow(
+            windowStartMillis = 30_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.40f))
+        )
+        recorder.stopSession(endedAtMillis = 50_000L)
+
+        val episode = recorder.completedEpisodeMetadata.single()
+        assertEquals(17_000L, episode.clipStartMillis)
+        assertEquals(25_000L, episode.clipEndMillis)
+        assertEquals(8_000L, episode.durationMillis)
+        assertEquals(1, writer.requests.size)
+        assertEquals(8_000, writer.requests.single().samples.size)
+    }
+
+    @Test
     fun invalidClampedBoundaryDoesNotEmitEpisodeMetadata() {
         val writer = FakeAudioClipWriter()
         val recorder = testRecorder(writer = writer)
@@ -251,11 +279,13 @@ class AudioEventRecorderTest {
 
     private fun testRecorder(
         bufferDurationMillis: Long = 50_000L,
+        maxClipDurationMillis: Long = 5 * 60_000L,
         writer: FakeAudioClipWriter = FakeAudioClipWriter()
     ): AudioEventRecorder {
         return AudioEventRecorder(
             config = RecordedEventConfig(
                 rollingBufferDurationMillis = bufferDurationMillis,
+                maxClipDurationMillis = maxClipDurationMillis,
                 sampleRate = 1_000
             ),
             clipWriter = writer
