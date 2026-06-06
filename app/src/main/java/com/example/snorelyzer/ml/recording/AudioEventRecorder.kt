@@ -52,7 +52,6 @@ data class RecordingEpisodeMetadata(
     val sessionId: String,
     val clipStartMillis: Long,
     val clipEndMillis: Long,
-    val dominantGroup: RecordedEventGroup,
     val groups: Set<RecordedEventGroup>,
     val eventSpans: List<EventSpanMetadata>,
     val peakProbabilities: Map<RecordedEventGroup, Float>,
@@ -61,9 +60,22 @@ data class RecordingEpisodeMetadata(
     val filePath: String? = null
 )
 
+interface RecordingMetadataSink {
+    fun onSessionStarted(session: RecordingSessionMetadata)
+    fun onEpisodeCompleted(episode: RecordingEpisodeMetadata)
+    fun onSessionCompleted(session: RecordingSessionMetadata)
+}
+
+object NoOpRecordingMetadataSink : RecordingMetadataSink {
+    override fun onSessionStarted(session: RecordingSessionMetadata) = Unit
+    override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) = Unit
+    override fun onSessionCompleted(session: RecordingSessionMetadata) = Unit
+}
+
 class AudioEventRecorder(
     val config: RecordedEventConfig = RecordedEventConfig(),
-    private val clipWriter: AudioClipWriter
+    private val clipWriter: AudioClipWriter,
+    private val metadataSink: RecordingMetadataSink = NoOpRecordingMetadataSink
 ) {
     private val rollingBuffer = RollingAudioBuffer(
         sampleRate = config.sampleRate,
@@ -94,7 +106,7 @@ class AudioEventRecorder(
         session = RecordingSessionMetadata(
             sessionId = "session-$startedAtMillis",
             startedAtMillis = startedAtMillis
-        )
+        ).also(metadataSink::onSessionStarted)
     }
 
     fun onAudioChunk(chunk: FloatArray, chunkStartMillis: Long) {
@@ -159,7 +171,7 @@ class AudioEventRecorder(
         session = session?.copy(
             endedAtMillis = endedAtMillis,
             completedEpisodeCount = completedEpisodes.size
-        )
+        )?.also(metadataSink::onSessionCompleted)
     }
 
     fun reset() {
@@ -202,7 +214,6 @@ class AudioEventRecorder(
         }
         activeSpans.clear()
 
-        val dominantGroup = episode.peakProbabilities.maxByOrNull { it.value }?.key ?: return
         val clipBoundary = calculateClipBoundary(episode) ?: run {
             activeEpisode = null
             state = RecorderState.Idle
@@ -241,14 +252,13 @@ class AudioEventRecorder(
             sessionId = episode.sessionId,
             clipStartMillis = clipBoundary.startMillis,
             clipEndMillis = clipBoundary.endMillis,
-            dominantGroup = dominantGroup,
             groups = episode.groups.toSet(),
             eventSpans = episode.eventSpans.toList(),
             peakProbabilities = episode.peakProbabilities.toMap(),
             sampleRate = writeResult.sampleRate,
             durationMillis = writeResult.durationMillis,
             filePath = writeResult.filePath
-        )
+        ).also(metadataSink::onEpisodeCompleted)
         activeEpisode = null
         state = RecorderState.Idle
         session = session?.copy(completedEpisodeCount = completedEpisodes.size)
