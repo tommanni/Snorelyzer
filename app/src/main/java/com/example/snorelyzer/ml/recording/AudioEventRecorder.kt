@@ -255,16 +255,21 @@ class AudioEventRecorder(
     }
 
     private fun calculateClipBoundary(episode: ActiveEpisode): ClipBoundary? {
+        // Discard first clipStartOffsetMillis of silent audio from the start
         val rawClipStartMillis = episode.firstPositiveWindowStartMillis + config.clipStartOffsetMillis
         val rawClipEndMillis = maxOf(
             episode.lastPositiveWindowStartMillis + config.clipEndOffsetMillis,
             rawClipStartMillis + config.minClipDurationMillis
         )
+        val cappedClipEndMillis = minOf(
+            rawClipEndMillis,
+            rawClipStartMillis + config.maxClipDurationMillis
+        )
 
         val availableStartMillis = rollingBuffer.availableStartMillis ?: return null
         val availableEndMillis = rollingBuffer.availableEndMillis ?: return null
         val clipStartMillis = maxOf(rawClipStartMillis, availableStartMillis)
-        val clipEndMillis = minOf(rawClipEndMillis, availableEndMillis)
+        val clipEndMillis = minOf(cappedClipEndMillis, availableEndMillis)
 
         return if (clipEndMillis > clipStartMillis) {
             ClipBoundary(clipStartMillis, clipEndMillis)
