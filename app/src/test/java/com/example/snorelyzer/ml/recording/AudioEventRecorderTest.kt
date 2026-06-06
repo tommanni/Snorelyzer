@@ -146,7 +146,7 @@ class AudioEventRecorderTest {
     }
 
     @Test
-    fun episodeMergesGroupsAndDominantGroupUsesPeakProbability() {
+    fun episodeMergesGroupsWithoutPersistedDominantGroup() {
         val recorder = testRecorder()
 
         recorder.startSession(startedAtMillis = 0L)
@@ -165,7 +165,6 @@ class AudioEventRecorderTest {
             setOf(RecordedEventGroup.Snoring, RecordedEventGroup.Gasp),
             episode.groups
         )
-        assertEquals(RecordedEventGroup.Gasp, episode.dominantGroup)
         assertEquals(2, episode.eventSpans.size)
     }
 
@@ -251,7 +250,8 @@ class AudioEventRecorderTest {
     @Test
     fun failedClipWriteDoesNotEmitEpisodeMetadata() {
         val writer = FakeAudioClipWriter(shouldThrow = true)
-        val recorder = testRecorder(writer = writer)
+        val sink = FakeRecordingMetadataSink()
+        val recorder = testRecorder(writer = writer, metadataSink = sink)
 
         recorder.startSession(startedAtMillis = 0L)
         recorder.feedAudio(durationMillis = 30_000L)
@@ -263,6 +263,25 @@ class AudioEventRecorderTest {
 
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
         assertEquals(1, writer.requests.size)
+        assertTrue(sink.completedEpisodes.isEmpty())
+    }
+
+    @Test
+    fun metadataSinkReceivesSessionAndCompletedEpisodeEvents() {
+        val sink = FakeRecordingMetadataSink()
+        val recorder = testRecorder(metadataSink = sink)
+
+        recorder.startSession(startedAtMillis = 0L)
+        recorder.feedAudio(durationMillis = 30_000L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.stopSession(endedAtMillis = 30_000L)
+
+        assertEquals("session-0", sink.startedSessions.single().sessionId)
+        assertEquals("session-0-episode-1", sink.completedEpisodes.single().episodeId)
+        assertEquals(30_000L, sink.completedSessions.single().endedAtMillis)
     }
 
     private fun groupResult(
@@ -280,7 +299,8 @@ class AudioEventRecorderTest {
     private fun testRecorder(
         bufferDurationMillis: Long = 50_000L,
         maxClipDurationMillis: Long = 5 * 60_000L,
-        writer: FakeAudioClipWriter = FakeAudioClipWriter()
+        writer: FakeAudioClipWriter = FakeAudioClipWriter(),
+        metadataSink: RecordingMetadataSink = NoOpRecordingMetadataSink
     ): AudioEventRecorder {
         return AudioEventRecorder(
             config = RecordedEventConfig(
@@ -288,7 +308,8 @@ class AudioEventRecorderTest {
                 maxClipDurationMillis = maxClipDurationMillis,
                 sampleRate = 1_000
             ),
-            clipWriter = writer
+            clipWriter = writer,
+            metadataSink = metadataSink
         )
     }
 
@@ -321,6 +342,24 @@ class AudioEventRecorderTest {
                 sampleRate = request.sampleRate,
                 durationMillis = request.samples.size * 1_000L / request.sampleRate
             )
+        }
+    }
+
+    private class FakeRecordingMetadataSink : RecordingMetadataSink {
+        val startedSessions = mutableListOf<RecordingSessionMetadata>()
+        val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
+        val completedSessions = mutableListOf<RecordingSessionMetadata>()
+
+        override fun onSessionStarted(session: RecordingSessionMetadata) {
+            startedSessions += session
+        }
+
+        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) {
+            completedEpisodes += episode
+        }
+
+        override fun onSessionCompleted(session: RecordingSessionMetadata) {
+            completedSessions += session
         }
     }
 }
