@@ -18,8 +18,8 @@ fun RecordedEventGroup.displayLabel(): String {
 
 data class RecordedEventConfig(
     val thresholds: Map<RecordedEventGroup, Float> = mapOf(
-        RecordedEventGroup.Snoring to 0.20f,
-        RecordedEventGroup.Gasp to 0.25f,
+        RecordedEventGroup.Snoring to 0.15f,
+        RecordedEventGroup.Gasp to 0.10f,
         RecordedEventGroup.Cough to 0.25f,
         RecordedEventGroup.SleepTalking to 0.25f
     ),
