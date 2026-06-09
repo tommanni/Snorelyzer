@@ -12,6 +12,7 @@ import com.example.snorelyzer.ml.recording.AudioClipWriter
 import com.example.snorelyzer.ml.recording.AudioEventRecorder
 import com.example.snorelyzer.ml.recording.RecordingMetadataSink
 import com.example.snorelyzer.ml.recording.WavAudioClipWriter
+import com.example.snorelyzer.presentation.insights.InsightsViewModel
 import com.example.snorelyzer.presentation.record.RecordViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.factoryOf
@@ -34,5 +35,6 @@ val appModule = module {
     factoryOf(::SleepClassifier)
     single<AudioClipWriter> { WavAudioClipWriter(androidContext()) }
     factory { AudioEventRecorder(clipWriter = get(), metadataSink = get()) }
+    viewModelOf(::InsightsViewModel)
     viewModelOf(::RecordViewModel)
 }
