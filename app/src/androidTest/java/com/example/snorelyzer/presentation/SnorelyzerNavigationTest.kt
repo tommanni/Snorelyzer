@@ -1,7 +1,9 @@
 package com.example.snorelyzer.presentation
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.example.snorelyzer.MainActivity
@@ -16,8 +18,8 @@ class SnorelyzerNavigationTest {
     @Test
     fun appStartsOnRecordScreen() {
         composeRule.onNodeWithText("Record").assertIsDisplayed()
-        composeRule.onNodeWithText("Start").assertIsDisplayed()
-        composeRule.onNodeWithText("Stop").assertIsDisplayed()
+        composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Stop Tracking").assertCountEquals(0)
     }
 
     @Test
@@ -31,7 +33,7 @@ class SnorelyzerNavigationTest {
         composeRule.onNodeWithText("Privacy policy").assertIsDisplayed()
 
         composeRule.onNodeWithText("Record").performClick()
-        composeRule.onNodeWithText("Start").assertIsDisplayed()
-        composeRule.onNodeWithText("Stop").assertIsDisplayed()
+        composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Stop Tracking").assertCountEquals(0)
     }
 }
