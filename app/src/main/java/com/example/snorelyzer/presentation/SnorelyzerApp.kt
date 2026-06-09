@@ -24,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.snorelyzer.presentation.insights.InsightsRoot
 import com.example.snorelyzer.presentation.record.RecordRoot
 import kotlinx.serialization.Serializable
 import kotlin.reflect.KClass
@@ -121,7 +122,7 @@ fun SnorelyzerApp(
                     )
                 }
                 composable<InsightsRoute> {
-                    InsightsScreen()
+                    InsightsRoot()
                 }
                 composable<SettingsRoute> {
                     SettingsScreen()
