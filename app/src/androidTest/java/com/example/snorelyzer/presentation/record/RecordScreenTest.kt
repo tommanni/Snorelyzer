@@ -4,8 +4,10 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -47,7 +49,7 @@ class RecordScreenTest {
     }
 
     @Test
-    fun buttonsDispatchRecordActions() {
+    fun startTrackingButtonDispatchesStartAction() {
         val actions = mutableListOf<RecordAction>()
 
         composeRule.setContent {
@@ -61,6 +63,13 @@ class RecordScreenTest {
 
         composeRule.onNodeWithText("Start Tracking").performClick()
 
+        assertEquals(listOf(RecordAction.OnStartClick), actions)
+    }
+
+    @Test
+    fun tappingStopTrackingDoesNotDispatchStopAction() {
+        val actions = mutableListOf<RecordAction>()
+
         composeRule.setContent {
             SnorelyzerTheme {
                 RecordScreen(
@@ -70,11 +79,96 @@ class RecordScreenTest {
             }
         }
 
-        composeRule.onNodeWithText("Stop Tracking").performClick()
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            down(center)
+            up()
+        }
 
-        assertEquals(
-            listOf(RecordAction.OnStartClick, RecordAction.OnStopClick),
-            actions
-        )
+        assertEquals(emptyList<RecordAction>(), actions)
+    }
+
+    @Test
+    fun stopTrackingHoldShowsCountdown() {
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = RecordState(isServiceRunning = true),
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            down(center)
+        }
+        composeRule.mainClock.advanceTimeByFrame()
+
+        composeRule.onNodeWithText("3").assertIsDisplayed()
+
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.onNodeWithText("2").assertIsDisplayed()
+
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.onNodeWithText("1").assertIsDisplayed()
+
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            up()
+        }
+        composeRule.mainClock.autoAdvance = true
+    }
+
+    @Test
+    fun releasingStopTrackingEarlyCancelsStopAction() {
+        val actions = mutableListOf<RecordAction>()
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = RecordState(isServiceRunning = true),
+                    onAction = actions::add
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            down(center)
+        }
+        composeRule.mainClock.advanceTimeByFrame()
+        composeRule.mainClock.advanceTimeBy(2_000)
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            up()
+        }
+        composeRule.mainClock.advanceTimeBy(1_000)
+
+        assertEquals(emptyList<RecordAction>(), actions)
+        composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
+        composeRule.mainClock.autoAdvance = true
+    }
+
+    @Test
+    fun holdingStopTrackingForThreeSecondsDispatchesStopActionOnce() {
+        val actions = mutableListOf<RecordAction>()
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = RecordState(isServiceRunning = true),
+                    onAction = actions::add
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            down(center)
+        }
+        composeRule.mainClock.advanceTimeByFrame()
+        composeRule.mainClock.advanceTimeBy(3_100)
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            up()
+        }
+
+        assertEquals(listOf(RecordAction.OnStopClick), actions)
+        composeRule.mainClock.autoAdvance = true
     }
 }
