@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.espresso.Espresso.pressBack
 import com.example.snorelyzer.MainActivity
 import org.junit.Rule
 import org.junit.Test
@@ -61,5 +62,20 @@ class SnorelyzerNavigationTest {
         composeRule.onNodeWithText("Session").assertIsSelected()
         composeRule.onNodeWithText("Session insights content will appear here.").assertIsDisplayed()
         composeRule.onAllNodesWithText("Analytics insights content will appear here.").assertCountEquals(0)
+    }
+
+    @Test
+    fun backFromAnalyticsReturnsToSessionBeforeLeavingInsights() {
+        composeRule.onNodeWithText("Insights").performClick()
+        composeRule.onNodeWithText("Analytics").performClick()
+        composeRule.onNodeWithText("Analytics").assertIsSelected()
+        composeRule.onNodeWithText("Analytics insights content will appear here.").assertIsDisplayed()
+
+        pressBack()
+        composeRule.onNodeWithText("Session").assertIsSelected()
+        composeRule.onNodeWithText("Session insights content will appear here.").assertIsDisplayed()
+
+        pressBack()
+        composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
     }
 }
