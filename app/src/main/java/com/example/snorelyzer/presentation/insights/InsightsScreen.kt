@@ -1,5 +1,6 @@
 package com.example.snorelyzer.presentation.insights
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,10 @@ fun InsightsRoot(
     viewModel: InsightsViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    BackHandler(enabled = state.selectedTab == InsightsTab.Analytics) {
+        viewModel.onAction(InsightsAction.OnTabSelected(InsightsTab.Session))
+    }
 
     InsightsScreen(
         state = state,
