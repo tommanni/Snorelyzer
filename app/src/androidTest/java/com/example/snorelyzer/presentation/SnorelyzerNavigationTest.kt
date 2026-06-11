@@ -2,6 +2,8 @@ package com.example.snorelyzer.presentation
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -25,8 +27,11 @@ class SnorelyzerNavigationTest {
     @Test
     fun bottomNavigationSwitchesBetweenTopLevelScreens() {
         composeRule.onNodeWithText("Insights").performClick()
-        composeRule.onNodeWithText("Sleep clips and metadata visualizations will appear here.")
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Session").assertIsDisplayed()
+        composeRule.onNodeWithText("Analytics").assertIsDisplayed()
+        composeRule.onNodeWithText("Session").assertIsSelected()
+        composeRule.onNodeWithText("Analytics").assertIsNotSelected()
+        composeRule.onNodeWithText("Session insights content will appear here.").assertIsDisplayed()
 
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Profile").assertIsDisplayed()
@@ -35,5 +40,26 @@ class SnorelyzerNavigationTest {
         composeRule.onNodeWithText("Record").performClick()
         composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
         composeRule.onAllNodesWithText("Stop Tracking").assertCountEquals(0)
+    }
+
+    @Test
+    fun insightsTabsSwitchVisibleContent() {
+        composeRule.onNodeWithText("Insights").performClick()
+        composeRule.onNodeWithText("Session insights content will appear here.").assertIsDisplayed()
+
+        composeRule.onNodeWithText("Analytics").performClick()
+        composeRule.onNodeWithText("Analytics").assertIsSelected()
+        composeRule.onNodeWithText("Analytics insights content will appear here.").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Session insights content will appear here.").assertCountEquals(0)
+
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("Insights").performClick()
+        composeRule.onNodeWithText("Analytics").assertIsSelected()
+        composeRule.onNodeWithText("Analytics insights content will appear here.").assertIsDisplayed()
+
+        composeRule.onNodeWithText("Session").performClick()
+        composeRule.onNodeWithText("Session").assertIsSelected()
+        composeRule.onNodeWithText("Session insights content will appear here.").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Analytics insights content will appear here.").assertCountEquals(0)
     }
 }

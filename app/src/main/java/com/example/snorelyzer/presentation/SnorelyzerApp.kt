@@ -24,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.example.snorelyzer.presentation.insights.InsightsRoot
 import com.example.snorelyzer.presentation.record.RecordRoot
 import kotlinx.serialization.Serializable
@@ -89,8 +90,11 @@ fun SnorelyzerApp(
                             selected = selected,
                             onClick = {
                                 navController.navigate(destination.route) {
-                                    popUpTo(navController.graph.startDestinationId)
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
                                     launchSingleTop = true
+                                    restoreState = true
                                 }
                             },
                             icon = {
