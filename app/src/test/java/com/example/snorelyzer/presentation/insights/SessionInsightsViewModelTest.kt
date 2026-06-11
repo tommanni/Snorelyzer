@@ -24,7 +24,7 @@ import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class InsightsViewModelTest {
+class SessionInsightsViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
@@ -34,7 +34,7 @@ class InsightsViewModelTest {
 
     @Test
     fun `initial state is loading until sleep nights emit`() = runTest {
-        val viewModel = InsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource)
 
         advanceUntilIdle()
 
@@ -48,7 +48,7 @@ class InsightsViewModelTest {
     fun `first emitted sleep nights select latest night`() = runTest {
         val latestNight = sleepNight(LocalDate.of(2026, 6, 10), "latest")
         val olderNight = sleepNight(LocalDate.of(2026, 6, 9), "older")
-        val viewModel = InsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource)
 
         sleepNights.emit(listOf(latestNight, olderNight))
         advanceUntilIdle()
@@ -64,10 +64,10 @@ class InsightsViewModelTest {
     fun `date selection updates selected night when date is available`() = runTest {
         val latestNight = sleepNight(LocalDate.of(2026, 6, 10), "latest")
         val olderNight = sleepNight(LocalDate.of(2026, 6, 9), "older")
-        val viewModel = InsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource)
 
         sleepNights.emit(listOf(latestNight, olderNight))
-        viewModel.onAction(InsightsAction.OnDateSelected(olderNight.date))
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(olderNight.date))
         advanceUntilIdle()
 
         assertEquals(olderNight.date, viewModel.state.value.selectedDate)
@@ -78,10 +78,10 @@ class InsightsViewModelTest {
     fun `date selection keeps empty selected date when no night exists`() = runTest {
         val latestNight = sleepNight(LocalDate.of(2026, 6, 10), "latest")
         val emptyDate = LocalDate.of(2026, 6, 8)
-        val viewModel = InsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource)
 
         sleepNights.emit(listOf(latestNight))
-        viewModel.onAction(InsightsAction.OnDateSelected(emptyDate))
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(emptyDate))
         advanceUntilIdle()
 
         assertEquals(emptyDate, viewModel.state.value.selectedDate)
@@ -94,10 +94,10 @@ class InsightsViewModelTest {
         val selectedNight = sleepNight(LocalDate.of(2026, 6, 9), "selected")
         val newLatestNight = sleepNight(LocalDate.of(2026, 6, 11), "new-latest")
         val updatedSelectedNight = sleepNight(LocalDate.of(2026, 6, 9), "updated-selected")
-        val viewModel = InsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource)
 
         sleepNights.emit(listOf(firstLatestNight, selectedNight))
-        viewModel.onAction(InsightsAction.OnDateSelected(selectedNight.date))
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(selectedNight.date))
         sleepNights.emit(listOf(newLatestNight, updatedSelectedNight))
         advanceUntilIdle()
 

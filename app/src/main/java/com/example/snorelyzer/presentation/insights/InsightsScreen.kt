@@ -18,7 +18,7 @@ import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun InsightsRoot(
-    viewModel: InsightsViewModel = koinViewModel()
+    viewModel: SessionInsightsViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -30,8 +30,8 @@ fun InsightsRoot(
 
 @Composable
 fun InsightsScreen(
-    state: InsightsState,
-    onAction: (InsightsAction) -> Unit
+    state: SessionInsightsState,
+    onAction: (SessionInsightsAction) -> Unit
 ) {
     val selectedDateText = state.selectedDate?.format(DateTimeFormatter.ISO_LOCAL_DATE)
 

@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-data class InsightsState(
+data class SessionInsightsState(
     val sleepNights: List<SleepNight> = emptyList(),
     val selectedDate: LocalDate? = null,
     val selectedNight: SleepNight? = null,
@@ -19,14 +19,14 @@ data class InsightsState(
     val isLoading: Boolean = true
 )
 
-sealed interface InsightsAction {
-    data class OnDateSelected(val date: LocalDate) : InsightsAction
+sealed interface SessionInsightsAction {
+    data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
 }
 
-class InsightsViewModel(
+class SessionInsightsViewModel(
     private val localDataSource: SleepRecordingLocalDataSource
 ) : ViewModel() {
-    private val _state = MutableStateFlow(InsightsState())
+    private val _state = MutableStateFlow(SessionInsightsState())
     val state = _state.asStateFlow()
 
     init {
@@ -47,9 +47,9 @@ class InsightsViewModel(
         }
     }
 
-    fun onAction(action: InsightsAction) {
+    fun onAction(action: SessionInsightsAction) {
         when (action) {
-            is InsightsAction.OnDateSelected -> {
+            is SessionInsightsAction.OnDateSelected -> {
                 _state.update { currentState ->
                     currentState.copy(
                         selectedDate = action.date,
