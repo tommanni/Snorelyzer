@@ -27,6 +27,9 @@ interface SleepRecordingDao {
     @Query("DELETE FROM event_spans WHERE episodeId = :episodeId")
     suspend fun deleteSpansForEpisode(episodeId: String)
 
+    @Query("DELETE FROM recording_sessions WHERE sessionId = :sessionId")
+    suspend fun deleteSession(sessionId: String)
+
     @Transaction
     suspend fun upsertEpisodeWithDetails(
         episode: RecordingEpisodeEntity,

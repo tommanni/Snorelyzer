@@ -91,4 +91,40 @@ class SleepRecordingDaoTest {
         assertFalse(RecordingEpisodeEntity::class.java.declaredFields.any { it.name.contains("probability", ignoreCase = true) })
         assertFalse(EventSpanEntity::class.java.declaredFields.any { it.name.contains("probability", ignoreCase = true) })
     }
+
+    @Test
+    fun deletingSessionCascadesEpisodeGroupsAndSpans() = runBlocking {
+        dataSource.upsertSession(
+            RecordingSessionMetadata(
+                sessionId = "session-1",
+                startedAtMillis = 1_000L
+            )
+        )
+        dataSource.insertEpisode(
+            RecordingEpisodeMetadata(
+                episodeId = "episode-1",
+                sessionId = "session-1",
+                clipStartMillis = 10_000L,
+                clipEndMillis = 15_000L,
+                groups = setOf(RecordedEventGroup.Snoring),
+                eventSpans = listOf(
+                    EventSpanMetadata(
+                        group = RecordedEventGroup.Snoring,
+                        startedAtMillis = 10_000L,
+                        endedAtMillis = 12_000L,
+                        peakProbability = 0.90f
+                    )
+                ),
+                peakProbabilities = mapOf(RecordedEventGroup.Snoring to 0.90f),
+                sampleRate = 32_000,
+                durationMillis = 5_000L,
+                filePath = "/recordings/episode-1.wav"
+            )
+        )
+
+        dataSource.deleteSession("session-1")
+
+        assertEquals(emptyList<RecordingSessionWithEpisodes>(), dataSource.observeSessions().first())
+        assertEquals(emptyList<RecordingEpisodeWithDetails>(), dataSource.observeEpisodesForSession("session-1").first())
+    }
 }
