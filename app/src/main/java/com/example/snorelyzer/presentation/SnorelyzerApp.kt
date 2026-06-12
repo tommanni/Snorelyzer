@@ -36,7 +36,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import com.example.snorelyzer.SleepTrackerService
+import com.example.snorelyzer.SleepTrackingSessionState
 import com.example.snorelyzer.presentation.insights.InsightsRoot
 import com.example.snorelyzer.presentation.record.ActiveSleepSessionRoot
 import com.example.snorelyzer.presentation.record.RecordRoot
@@ -91,13 +91,14 @@ fun SnorelyzerApp(
     onStartRecordingService: () -> Unit,
     onStopRecordingService: () -> Unit,
     onDiscardRecordingService: () -> Unit,
+    sleepTrackingSessionStateFlow: StateFlow<SleepTrackingSessionState>,
     openActiveSessionRequest: Int = 0,
-    isServiceRunningFlow: StateFlow<Boolean> = SleepTrackerService.isServiceRunning
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
-    val isServiceRunning by isServiceRunningFlow.collectAsStateWithLifecycle()
+    val sleepTrackingSessionState by sleepTrackingSessionStateFlow.collectAsStateWithLifecycle()
+    val isServiceRunning = sleepTrackingSessionState.isRunning
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
     val isActiveSessionRoute = currentDestination?.hierarchy?.any {
