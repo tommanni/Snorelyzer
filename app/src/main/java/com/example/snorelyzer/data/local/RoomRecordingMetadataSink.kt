@@ -5,6 +5,7 @@ import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingMetadataSink
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -35,8 +36,14 @@ class RoomRecordingMetadataSink(
         }
     }
 
+    override fun onSessionDiscarded(sessionId: String) {
+        persist("Failed to discard recording session") {
+            localDataSource.deleteSession(sessionId)
+        }
+    }
+
     private fun persist(errorMessage: String, block: suspend () -> Unit) {
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             persistenceMutex.withLock {
                 runCatching { block() }
                     .onFailure { Log.e(TAG, errorMessage, it) }
