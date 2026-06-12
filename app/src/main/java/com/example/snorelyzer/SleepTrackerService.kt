@@ -2,7 +2,6 @@ package com.example.snorelyzer
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -34,6 +33,9 @@ data class DetectedClassUi(
 class SleepTrackerService : Service() {
 
     companion object {
+        const val ACTION_STOP_SAVE = "com.example.snorelyzer.action.STOP_SAVE"
+        const val ACTION_STOP_DISCARD = "com.example.snorelyzer.action.STOP_DISCARD"
+
         private val _latestStatus = MutableStateFlow("Waiting for audio...")
         val latestStatus = _latestStatus.asStateFlow()
 
@@ -42,11 +44,15 @@ class SleepTrackerService : Service() {
 
         private val _isServiceRunning = MutableStateFlow(false)
         val isServiceRunning = _isServiceRunning.asStateFlow()
+
+        private val _sessionStartedAtMillis = MutableStateFlow<Long?>(null)
+        val sessionStartedAtMillis = _sessionStartedAtMillis.asStateFlow()
     }
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var isRecording = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
     private var processingJob: Job? = null
+    private var shouldSaveSessionOnStop = true
 
     private val audioProcessor: AudioProcessor by inject()
     private val audioGate: AudioGate by inject()
@@ -65,7 +71,13 @@ class SleepTrackerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP") {
+        if (intent?.action == ACTION_STOP_SAVE) {
+            shouldSaveSessionOnStop = true
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_STOP_DISCARD) {
+            shouldSaveSessionOnStop = false
             stopSelf()
             return START_NOT_STICKY
         }
@@ -80,14 +92,10 @@ class SleepTrackerService : Service() {
         val channel = NotificationChannel(channelId, "Sleep Tracker", NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
 
-        val stopIntent = Intent(this, SleepTrackerService::class.java).apply { action = "STOP" }
-        val pendingStop = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE)
-
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Sleep Tracker Active")
             .setContentText("Listening for sleep events...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", pendingStop)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -120,6 +128,7 @@ class SleepTrackerService : Service() {
             audioRecord?.startRecording()
             audioGate.reset()
             val sessionStartedAtMillis = System.currentTimeMillis()
+            _sessionStartedAtMillis.value = sessionStartedAtMillis
             audioEventRecorder.startSession(sessionStartedAtMillis)
 
             processingJob = scope.launch {
@@ -313,6 +322,7 @@ class SleepTrackerService : Service() {
         _isServiceRunning.value = false
         _latestStatus.value = "Stopped"
         _latestResults.value = emptyList()
+        _sessionStartedAtMillis.value = null
         isRecording.set(false)
         runCatching { audioRecord?.stop() }
 
@@ -336,7 +346,11 @@ class SleepTrackerService : Service() {
         audioRecord = null
         audioProcessor.reset()
         audioGate.reset()
-        audioEventRecorder.stopSession(System.currentTimeMillis())
+        if (shouldSaveSessionOnStop) {
+            audioEventRecorder.stopSession(System.currentTimeMillis())
+        } else {
+            audioEventRecorder.discardSession()
+        }
         audioEventRecorder.reset()
         scope.cancel()
         classifier.close()
