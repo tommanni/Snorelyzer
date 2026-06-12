@@ -2,6 +2,7 @@ package com.example.snorelyzer.ml.recording
 
 interface AudioClipWriter {
     fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult
+    fun deleteClip(filePath: String): Boolean
 }
 
 data class AudioClipWriteRequest(
