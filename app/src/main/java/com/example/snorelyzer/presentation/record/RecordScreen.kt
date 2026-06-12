@@ -14,10 +14,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,9 +47,11 @@ fun RecordRoot(
     onRequestRecordingPermission: ((Boolean) -> Unit) -> Unit,
     onStartRecordingService: () -> Unit,
     onStopRecordingService: () -> Unit,
+    onDiscardRecordingService: () -> Unit,
     viewModel: RecordViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -56,15 +62,32 @@ fun RecordRoot(
                     }
                 }
                 RecordEvent.StartRecordingService -> onStartRecordingService()
-                RecordEvent.StopRecordingService -> onStopRecordingService()
+                is RecordEvent.StopRecordingService -> {
+                    if (event.save) {
+                        onStopRecordingService()
+                    } else {
+                        onDiscardRecordingService()
+                    }
+                }
+                RecordEvent.ShowRecordingDiscardedNotification -> {
+                    snackbarHostState.showSnackbar("Discarded succesfully")
+                }
             }
         }
     }
 
-    RecordScreen(
-        state = state,
-        onAction = viewModel::onAction
-    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        RecordScreen(
+            state = state,
+            onAction = viewModel::onAction
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(16.dp)
+        )
+    }
 }
 
 @Composable
@@ -84,6 +107,7 @@ fun RecordScreen(
         if (state.isServiceRunning) {
             HoldToStopTrackingButton(
                 onStopTracking = { onAction(RecordAction.OnStopClick) },
+                resetKey = state.stopTrackingHoldResetKey,
                 modifier = Modifier.fillMaxWidth()
             )
         } else {
@@ -98,11 +122,32 @@ fun RecordScreen(
             }
         }
     }
+
+    if (state.showShortSessionDialog) {
+        AlertDialog(
+            onDismissRequest = { onAction(RecordAction.OnKeepRecordingClick) },
+            title = { Text("Recording is too short") },
+            text = {
+                Text("Sleep sessions shorter than 10 minutes are not saved. Keep tracking to save this session later.")
+            },
+            confirmButton = {
+                TextButton(onClick = { onAction(RecordAction.OnKeepRecordingClick) }) {
+                    Text("Keep tracking")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onAction(RecordAction.OnEndShortSessionNowClick) }) {
+                    Text("End now")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun HoldToStopTrackingButton(
     onStopTracking: () -> Unit,
+    resetKey: Int,
     modifier: Modifier = Modifier
 ) {
     val progress = remember { Animatable(0f) }
@@ -115,6 +160,12 @@ private fun HoldToStopTrackingButton(
         Color.Black
     } else {
         contentColorFor(backgroundColor)
+    }
+
+    LaunchedEffect(resetKey) {
+        progress.snapTo(0f)
+        isHolding = false
+        hasDispatchedStop = false
     }
 
     Box(
