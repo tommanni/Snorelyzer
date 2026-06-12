@@ -284,6 +284,31 @@ class AudioEventRecorderTest {
         assertEquals(30_000L, sink.completedSessions.single().endedAtMillis)
     }
 
+    @Test
+    fun discardSessionDeletesCompletedClipsAndDoesNotCompleteSession() {
+        val writer = FakeAudioClipWriter()
+        val sink = FakeRecordingMetadataSink()
+        val recorder = testRecorder(writer = writer, metadataSink = sink)
+
+        recorder.startSession(startedAtMillis = 0L)
+        recorder.feedAudio(durationMillis = 40_000L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.onClassificationWindow(
+            windowStartMillis = 30_000L,
+            occurringGroups = emptyList()
+        )
+
+        recorder.discardSession()
+
+        assertTrue(recorder.completedEpisodeMetadata.isEmpty())
+        assertEquals(listOf("fake/session-0-episode-1.wav"), writer.deletedClips)
+        assertTrue(sink.completedSessions.isEmpty())
+        assertEquals(listOf("session-0"), sink.discardedSessions)
+    }
+
     private fun groupResult(
         group: RecordedEventGroup,
         probability: Float
@@ -333,6 +358,7 @@ class AudioEventRecorderTest {
         private val shouldThrow: Boolean = false
     ) : AudioClipWriter {
         val requests = mutableListOf<AudioClipWriteRequest>()
+        val deletedClips = mutableListOf<String>()
 
         override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult {
             requests += request
@@ -343,12 +369,18 @@ class AudioEventRecorderTest {
                 durationMillis = request.samples.size * 1_000L / request.sampleRate
             )
         }
+
+        override fun deleteClip(filePath: String): Boolean {
+            deletedClips += filePath
+            return true
+        }
     }
 
     private class FakeRecordingMetadataSink : RecordingMetadataSink {
         val startedSessions = mutableListOf<RecordingSessionMetadata>()
         val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
         val completedSessions = mutableListOf<RecordingSessionMetadata>()
+        val discardedSessions = mutableListOf<String>()
 
         override fun onSessionStarted(session: RecordingSessionMetadata) {
             startedSessions += session
@@ -360,6 +392,10 @@ class AudioEventRecorderTest {
 
         override fun onSessionCompleted(session: RecordingSessionMetadata) {
             completedSessions += session
+        }
+
+        override fun onSessionDiscarded(sessionId: String) {
+            discardedSessions += sessionId
         }
     }
 }

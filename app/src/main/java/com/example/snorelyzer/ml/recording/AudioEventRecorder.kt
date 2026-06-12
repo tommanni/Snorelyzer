@@ -64,12 +64,14 @@ interface RecordingMetadataSink {
     fun onSessionStarted(session: RecordingSessionMetadata)
     fun onEpisodeCompleted(episode: RecordingEpisodeMetadata)
     fun onSessionCompleted(session: RecordingSessionMetadata)
+    fun onSessionDiscarded(sessionId: String)
 }
 
 object NoOpRecordingMetadataSink : RecordingMetadataSink {
     override fun onSessionStarted(session: RecordingSessionMetadata) = Unit
     override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) = Unit
     override fun onSessionCompleted(session: RecordingSessionMetadata) = Unit
+    override fun onSessionDiscarded(sessionId: String) = Unit
 }
 
 class AudioEventRecorder(
@@ -172,6 +174,15 @@ class AudioEventRecorder(
             endedAtMillis = endedAtMillis,
             completedEpisodeCount = completedEpisodes.size
         )?.also(metadataSink::onSessionCompleted)
+    }
+
+    fun discardSession() {
+        val sessionId = session?.sessionId ?: return
+        completedEpisodes
+            .mapNotNull { it.filePath }
+            .forEach { clipWriter.deleteClip(it) }
+        metadataSink.onSessionDiscarded(sessionId)
+        reset()
     }
 
     fun reset() {

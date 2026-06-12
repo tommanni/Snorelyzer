@@ -25,6 +25,11 @@ internal class WavAudioClipWriter internal constructor(
         )
     }
 
+    override fun deleteClip(filePath: String): Boolean {
+        val file = File(filePath)
+        return !file.exists() || file.delete()
+    }
+
     private fun writeWav(
         output: FileOutputStream,
         samples: FloatArray,
