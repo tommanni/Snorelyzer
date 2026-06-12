@@ -36,7 +36,8 @@ class MainActivity : ComponentActivity() {
                 SnorelyzerApp(
                     onRequestRecordingPermission = ::checkPermissionsAndReport,
                     onStartRecordingService = ::startSleepTracker,
-                    onStopRecordingService = ::stopSleepTracker
+                    onStopRecordingService = ::stopSleepTracker,
+                    onDiscardRecordingService = ::discardSleepTracker
                 )
             }
         }
@@ -67,7 +68,14 @@ class MainActivity : ComponentActivity() {
 
     private fun stopSleepTracker() {
         val intent = Intent(this, SleepTrackerService::class.java).apply {
-            action = "STOP"
+            action = SleepTrackerService.ACTION_STOP_SAVE
+        }
+        startService(intent)
+    }
+
+    private fun discardSleepTracker() {
+        val intent = Intent(this, SleepTrackerService::class.java).apply {
+            action = SleepTrackerService.ACTION_STOP_DISCARD
         }
         startService(intent)
     }

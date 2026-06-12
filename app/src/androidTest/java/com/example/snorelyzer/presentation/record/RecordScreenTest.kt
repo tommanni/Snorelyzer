@@ -8,6 +8,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -169,6 +172,100 @@ class RecordScreenTest {
         }
 
         assertEquals(listOf(RecordAction.OnStopClick), actions)
+        composeRule.mainClock.autoAdvance = true
+    }
+
+    @Test
+    fun shortSessionDialogShowsWarningAndActions() {
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = RecordState(
+                        isServiceRunning = true,
+                        showShortSessionDialog = true
+                    ),
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Recording is too short").assertIsDisplayed()
+        composeRule.onNodeWithText("Sleep sessions shorter than 10 minutes are not saved. Keep tracking to save this session later.").assertIsDisplayed()
+        composeRule.onNodeWithText("Keep tracking").assertIsDisplayed()
+        composeRule.onNodeWithText("End now").assertIsDisplayed()
+    }
+
+    @Test
+    fun shortSessionDialogButtonsDispatchActions() {
+        val actions = mutableListOf<RecordAction>()
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = RecordState(
+                        isServiceRunning = true,
+                        showShortSessionDialog = true
+                    ),
+                    onAction = actions::add
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Keep tracking").performClick()
+        composeRule.onNodeWithText("End now").performClick()
+
+        assertEquals(
+            listOf(
+                RecordAction.OnKeepRecordingClick,
+                RecordAction.OnEndShortSessionNowClick
+            ),
+            actions
+        )
+    }
+
+    @Test
+    fun keepTrackingResetsCompletedStopTrackingHold() {
+        val actions = mutableListOf<RecordAction>()
+        var state by mutableStateOf(RecordState(isServiceRunning = true))
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = state,
+                    onAction = { action ->
+                        actions += action
+                        if (action == RecordAction.OnKeepRecordingClick) {
+                            state = state.copy(
+                                showShortSessionDialog = false,
+                                stopTrackingHoldResetKey = state.stopTrackingHoldResetKey + 1
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            down(center)
+        }
+        composeRule.mainClock.advanceTimeByFrame()
+        composeRule.mainClock.advanceTimeBy(3_100)
+        composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
+            up()
+        }
+
+        state = state.copy(showShortSessionDialog = true)
+        composeRule.mainClock.advanceTimeByFrame()
+        composeRule.onNodeWithText("Keep tracking").performClick()
+        composeRule.mainClock.advanceTimeByFrame()
+
+        composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
+        assertEquals(
+            listOf(
+                RecordAction.OnStopClick,
+                RecordAction.OnKeepRecordingClick
+            ),
+            actions
+        )
         composeRule.mainClock.autoAdvance = true
     }
 }

@@ -71,7 +71,8 @@ private val topLevelDestinations = listOf(
 fun SnorelyzerApp(
     onRequestRecordingPermission: ((Boolean) -> Unit) -> Unit,
     onStartRecordingService: () -> Unit,
-    onStopRecordingService: () -> Unit
+    onStopRecordingService: () -> Unit,
+    onDiscardRecordingService: () -> Unit
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -122,7 +123,8 @@ fun SnorelyzerApp(
                     RecordRoot(
                         onRequestRecordingPermission = onRequestRecordingPermission,
                         onStartRecordingService = onStartRecordingService,
-                        onStopRecordingService = onStopRecordingService
+                        onStopRecordingService = onStopRecordingService,
+                        onDiscardRecordingService = onDiscardRecordingService
                     )
                 }
                 composable<InsightsRoute> {
