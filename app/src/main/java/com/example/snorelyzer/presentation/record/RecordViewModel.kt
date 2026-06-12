@@ -3,9 +3,8 @@ package com.example.snorelyzer.presentation.record
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.snorelyzer.DetectedClassUi
-import com.example.snorelyzer.SleepTrackerService
+import com.example.snorelyzer.SleepTrackingSessionStateSource
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -37,11 +36,8 @@ sealed interface RecordEvent {
 }
 
 class RecordViewModel(
-    private val nowMillis: () -> Long = System::currentTimeMillis,
-    latestStatus: Flow<String> = SleepTrackerService.latestStatus,
-    latestResults: Flow<List<DetectedClassUi>> = SleepTrackerService.latestResults,
-    isServiceRunning: Flow<Boolean> = SleepTrackerService.isServiceRunning,
-    sessionStartedAtMillis: Flow<Long?> = SleepTrackerService.sessionStartedAtMillis
+    sessionStateSource: SleepTrackingSessionStateSource,
+    private val nowMillis: () -> Long = System::currentTimeMillis
 ) : ViewModel() {
     private val _state = MutableStateFlow(RecordState())
     val state = _state.asStateFlow()
@@ -51,23 +47,15 @@ class RecordViewModel(
 
     init {
         viewModelScope.launch {
-            latestStatus.collect { latestStatus ->
-                _state.update { it.copy(latestStatus = latestStatus) }
-            }
-        }
-        viewModelScope.launch {
-            latestResults.collect { latestResults ->
-                _state.update { it.copy(latestResults = latestResults) }
-            }
-        }
-        viewModelScope.launch {
-            isServiceRunning.collect { isServiceRunning ->
-                _state.update { it.copy(isServiceRunning = isServiceRunning) }
-            }
-        }
-        viewModelScope.launch {
-            sessionStartedAtMillis.collect { sessionStartedAtMillis ->
-                _state.update { it.copy(sessionStartedAtMillis = sessionStartedAtMillis) }
+            sessionStateSource.state.collect { sessionState ->
+                _state.update {
+                    it.copy(
+                        latestStatus = sessionState.latestStatus,
+                        latestResults = sessionState.latestResults,
+                        isServiceRunning = sessionState.isRunning,
+                        sessionStartedAtMillis = sessionState.sessionStartedAtMillis
+                    )
+                }
             }
         }
     }

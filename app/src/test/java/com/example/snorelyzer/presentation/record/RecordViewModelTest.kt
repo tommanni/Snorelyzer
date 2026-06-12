@@ -1,10 +1,13 @@
 package com.example.snorelyzer.presentation.record
 
 import com.example.snorelyzer.DetectedClassUi
+import com.example.snorelyzer.SleepTrackingSessionState
+import com.example.snorelyzer.SleepTrackingSessionStateSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -127,12 +130,23 @@ class RecordViewModelTest {
         isServiceRunning: Boolean = false,
         sessionStartedAtMillis: Long? = null
     ): RecordViewModel {
-        return RecordViewModel(
-            nowMillis = { nowMillis },
-            latestStatus = MutableStateFlow("Waiting for audio..."),
-            latestResults = MutableStateFlow(emptyList<DetectedClassUi>()),
-            isServiceRunning = MutableStateFlow(isServiceRunning),
-            sessionStartedAtMillis = MutableStateFlow(sessionStartedAtMillis)
+        val sessionStateSource = FakeSleepTrackingSessionStateSource(
+            SleepTrackingSessionState(
+                latestStatus = "Waiting for audio...",
+                latestResults = emptyList<DetectedClassUi>(),
+                isRunning = isServiceRunning,
+                sessionStartedAtMillis = sessionStartedAtMillis
+            )
         )
+        return RecordViewModel(
+            sessionStateSource = sessionStateSource,
+            nowMillis = { nowMillis }
+        )
+    }
+
+    private class FakeSleepTrackingSessionStateSource(
+        initialState: SleepTrackingSessionState
+    ) : SleepTrackingSessionStateSource {
+        override val state: StateFlow<SleepTrackingSessionState> = MutableStateFlow(initialState)
     }
 }

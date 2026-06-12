@@ -11,10 +11,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.snorelyzer.presentation.SnorelyzerApp
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
+import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
 
     private var permissionResultCallback: ((Boolean) -> Unit)? = null
+    private val sleepTrackingSessionStateSource: SleepTrackingSessionStateSource by inject()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -37,7 +39,8 @@ class MainActivity : ComponentActivity() {
                     onRequestRecordingPermission = ::checkPermissionsAndReport,
                     onStartRecordingService = ::startSleepTracker,
                     onStopRecordingService = ::stopSleepTracker,
-                    onDiscardRecordingService = ::discardSleepTracker
+                    onDiscardRecordingService = ::discardSleepTracker,
+                    sleepTrackingSessionStateFlow = sleepTrackingSessionStateSource.state
                 )
             }
         }

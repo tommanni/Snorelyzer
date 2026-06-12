@@ -8,7 +8,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.ln
 
-class AudioProcessor(context: Context) {
+class AudioProcessor(context: Context) : MelSpectrogramProcessor {
     private val nMels = AudioModelConfig.N_MELS
     private val nFft = AudioModelConfig.N_FFT
     private val nFreqBins = AudioModelConfig.N_FREQ_BINS
@@ -80,11 +80,11 @@ class AudioProcessor(context: Context) {
     private val framesPerStep = 100 // 1 second of audio at 32kHz with 320 hopSize
     private val stepSamples = framesPerStep * hopSize
 
-    fun reset() {
+    override fun reset() {
         isFirstRun = true
     }
 
-    fun process(audioData: FloatArray): FloatArray {
+    override fun process(audioData: FloatArray): FloatArray {
         require(audioData.size == expectedSamples) { "Expected 320,000 samples, got ${audioData.size}" }
 
         // 1 & 2. Pre-emphasis & padding

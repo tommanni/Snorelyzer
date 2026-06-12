@@ -11,7 +11,7 @@ data class ClassificationResult(
     val probability: Float
 )
 
-class SleepClassifier(context: Context) {
+class SleepClassifier(context: Context) : RelevantSleepClassifier {
     private val environment: Environment = Environment.create()
     private val model: CompiledModel
 
@@ -32,7 +32,7 @@ class SleepClassifier(context: Context) {
         validateInputShape()
     }
 
-    fun classifyRelevant(
+    override fun classifyRelevant(
         melSpectrogram: FloatArray,
         relevantClassIndices: Set<Int>
     ): List<ClassificationResult> {
@@ -73,7 +73,7 @@ class SleepClassifier(context: Context) {
         return logits.map { 1.0f / (1.0f + exp(-it)) }
     }
 
-    fun close() {
+    override fun close() {
         inputBuffers.forEach { it.close() }
         outputBuffers.forEach { it.close() }
 

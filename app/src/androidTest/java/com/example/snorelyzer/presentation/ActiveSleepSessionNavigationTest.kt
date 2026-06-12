@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.espresso.Espresso.pressBack
+import com.example.snorelyzer.SleepTrackingSessionState
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Rule
@@ -18,7 +19,9 @@ class ActiveSleepSessionNavigationTest {
 
     @Test
     fun activeSleepSessionHidesNavigationAndConsumesBackUntilServiceStops() {
-        val isServiceRunning = MutableStateFlow(true)
+        val sleepTrackingSessionState = MutableStateFlow(
+            SleepTrackingSessionState(isRunning = true)
+        )
 
         composeRule.setContent {
             SnorelyzerTheme {
@@ -27,7 +30,7 @@ class ActiveSleepSessionNavigationTest {
                     onStartRecordingService = {},
                     onStopRecordingService = {},
                     onDiscardRecordingService = {},
-                    isServiceRunningFlow = isServiceRunning
+                    sleepTrackingSessionStateFlow = sleepTrackingSessionState
                 )
             }
         }
@@ -41,7 +44,7 @@ class ActiveSleepSessionNavigationTest {
         composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
 
         composeRule.runOnIdle {
-            isServiceRunning.value = false
+            sleepTrackingSessionState.value = SleepTrackingSessionState(isRunning = false)
         }
 
         composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
