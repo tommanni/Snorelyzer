@@ -134,6 +134,8 @@ private class FakeSleepRecordingLocalDataSource(
 
     override suspend fun completeSession(session: RecordingSessionMetadata) = Unit
 
+    override suspend fun deleteSession(sessionId: String) = Unit
+
     override fun observeSessions(): Flow<List<RecordingSessionWithEpisodes>> = emptyFlow()
 
     override fun observeSleepNights(zoneId: ZoneId): Flow<List<SleepNight>> = sleepNights
