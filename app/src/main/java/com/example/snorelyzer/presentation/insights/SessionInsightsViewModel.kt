@@ -21,6 +21,7 @@ data class SessionInsightsState(
 
 sealed interface SessionInsightsAction {
     data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
+    data class OnPlayEpisodeClick(val episodeId: String, val filePath: String) : SessionInsightsAction
 }
 
 class SessionInsightsViewModel(
@@ -56,6 +57,9 @@ class SessionInsightsViewModel(
                         selectedNight = currentState.sleepNights.firstOrNull { it.date == action.date }
                     )
                 }
+            }
+            is SessionInsightsAction.OnPlayEpisodeClick -> {
+                // TODO: Implement ExoPlayer playback logic here
             }
         }
     }
