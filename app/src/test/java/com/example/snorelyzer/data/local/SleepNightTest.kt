@@ -75,15 +75,15 @@ class SleepNightTest {
             id = "session-1",
             startedAtMillis = 1_000L,
             endedAtMillis = 3_000L,
-            episodes = listOf(episode("episode-1", "session-1"))
+            episodes = listOf(episode("episode-1", "session-1", 1_500L))
         )
         val secondSession = session(
             id = "session-2",
             startedAtMillis = 5_000L,
             endedAtMillis = 8_000L,
             episodes = listOf(
-                episode("episode-2", "session-2"),
-                episode("episode-3", "session-2")
+                episode("episode-2", "session-2", 5_500L),
+                episode("episode-3", "session-2", 6_500L)
             )
         )
 
@@ -96,6 +96,12 @@ class SleepNightTest {
         assertEquals(8_000L, sleepNight.endedAtMillis)
         assertEquals(3, sleepNight.episodeCount)
         assertEquals(5_000L, sleepNight.totalRecordingDurationMillis(nowMillis = 10_000L))
+        
+        val allEpisodes = sleepNight.allEpisodes
+        assertEquals(3, allEpisodes.size)
+        assertEquals("episode-1", allEpisodes[0].episode.episodeId)
+        assertEquals("episode-2", allEpisodes[1].episode.episodeId)
+        assertEquals("episode-3", allEpisodes[2].episode.episodeId)
     }
 
     @Test
@@ -149,7 +155,7 @@ class SleepNightTest {
         id: String,
         startedAtMillis: Long,
         endedAtMillis: Long?,
-        episodes: List<RecordingEpisodeEntity> = emptyList()
+        episodes: List<RecordingEpisodeWithDetails> = emptyList()
     ): RecordingSessionWithEpisodes {
         return RecordingSessionWithEpisodes(
             session = RecordingSessionEntity(
@@ -163,16 +169,21 @@ class SleepNightTest {
 
     private fun episode(
         id: String,
-        sessionId: String
-    ): RecordingEpisodeEntity {
-        return RecordingEpisodeEntity(
-            episodeId = id,
-            sessionId = sessionId,
-            clipStartMillis = 0L,
-            clipEndMillis = 1_000L,
-            durationMillis = 1_000L,
-            sampleRate = 32_000,
-            filePath = null
+        sessionId: String,
+        clipStartMillis: Long = 0L
+    ): RecordingEpisodeWithDetails {
+        return RecordingEpisodeWithDetails(
+            episode = RecordingEpisodeEntity(
+                episodeId = id,
+                sessionId = sessionId,
+                clipStartMillis = clipStartMillis,
+                clipEndMillis = clipStartMillis + 1_000L,
+                durationMillis = 1_000L,
+                sampleRate = 32_000,
+                filePath = null
+            ),
+            groups = emptyList(),
+            eventSpans = emptyList()
         )
     }
 }

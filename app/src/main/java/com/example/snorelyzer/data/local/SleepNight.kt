@@ -26,6 +26,9 @@ data class SleepNight(
     val episodeCount: Int
         get() = sessions.sumOf { it.episodes.size }
 
+    val allEpisodes: List<RecordingEpisodeWithDetails>
+        get() = sessions.flatMap { it.episodes }.sortedBy { it.episode.clipStartMillis }
+
     fun totalRecordingDurationMillis(nowMillis: Long): Long {
         return sessions.sumOf { sessionWithEpisodes ->
             val session = sessionWithEpisodes.session
