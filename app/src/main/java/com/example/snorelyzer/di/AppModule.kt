@@ -1,5 +1,6 @@
 package com.example.snorelyzer.di
 
+import androidx.media3.common.Player
 import androidx.room.Room
 import com.example.snorelyzer.SleepTrackingSessionController
 import com.example.snorelyzer.SleepTrackingSessionStateSource
@@ -27,6 +28,7 @@ import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 import org.koin.core.module.dsl.viewModel
+import androidx.media3.exoplayer.ExoPlayer
 
 val appModule = module {
     single {
@@ -60,6 +62,9 @@ val appModule = module {
         )
     }
     single<SleepTrackingSessionStateSource> { get<SleepTrackingSessionController>() }
+    factory<Player> {
+        ExoPlayer.Builder(androidContext()).build()
+    }
     viewModelOf(::InsightsViewModel)
     viewModelOf(::SessionInsightsViewModel)
     viewModelOf(::AnalyticsInsightsViewModel)
