@@ -64,6 +64,8 @@ dependencies {
     implementation(libs.koin.androidx.compose)
     implementation(libs.litert)
     implementation(libs.jtransforms)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.common)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
