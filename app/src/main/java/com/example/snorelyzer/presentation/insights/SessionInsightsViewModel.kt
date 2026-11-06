@@ -17,6 +17,7 @@ data class SessionInsightsState(
     val sleepNights: List<SleepNight> = emptyList(),
     val selectedDate: LocalDate? = null,
     val selectedNight: SleepNight? = null,
+    val selectedNightAnalytics: NightAnalytics? = null,
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = true,
     val playingEpisodeId: String? = null,
@@ -67,10 +68,14 @@ class SessionInsightsViewModel(
                         sleepNights.firstOrNull()?.date
                     }
 
+                    val selectedNight = sleepNights.firstOrNull { it.date == selectedDate }
+                    val selectedNightAnalytics = selectedNight?.let { computeNightAnalytics(it) }
+
                     currentState.copy(
                         sleepNights = sleepNights,
                         selectedDate = selectedDate,
-                        selectedNight = sleepNights.firstOrNull { it.date == selectedDate },
+                        selectedNight = selectedNight,
+                        selectedNightAnalytics = selectedNightAnalytics,
                         availableDates = sleepNights.mapTo(mutableSetOf()) { it.date },
                         isLoading = false
                     )
@@ -84,9 +89,12 @@ class SessionInsightsViewModel(
             is SessionInsightsAction.OnDateSelected -> {
                 isManualDateSelection = true
                 _state.update { currentState ->
+                    val night = currentState.sleepNights.firstOrNull { it.date == action.date }
+                    val analytics = night?.let { computeNightAnalytics(it) }
                     currentState.copy(
                         selectedDate = action.date,
-                        selectedNight = currentState.sleepNights.firstOrNull { it.date == action.date }
+                        selectedNight = night,
+                        selectedNightAnalytics = analytics
                     )
                 }
             }

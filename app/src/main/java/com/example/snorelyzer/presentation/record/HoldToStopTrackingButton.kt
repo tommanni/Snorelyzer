@@ -9,22 +9,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.coroutineScope
@@ -39,13 +38,13 @@ internal fun HoldToStopTrackingButton(
     val progress = remember { Animatable(0f) }
     var isHolding by remember { mutableStateOf(false) }
     var hasDispatchedStop by remember { mutableStateOf(false) }
-    val shape = MaterialTheme.shapes.small
-    val backgroundColor = NavigationBarDefaults.containerColor
-    val fillColor = Color.White
+    val shape = RoundedCornerShape(16.dp)
+    val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val fillColor = MaterialTheme.colorScheme.errorContainer
     val textColor = if (progress.value >= 0.5f) {
-        Color.Black
+        MaterialTheme.colorScheme.onErrorContainer
     } else {
-        contentColorFor(backgroundColor)
+        MaterialTheme.colorScheme.onSurface
     }
 
     LaunchedEffect(resetKey) {
@@ -56,7 +55,7 @@ internal fun HoldToStopTrackingButton(
 
     Box(
         modifier = modifier
-            .height(48.dp)
+            .height(56.dp)
             .clip(shape)
             .background(backgroundColor)
             .testTag(StopTrackingHoldButtonTag)
@@ -104,7 +103,8 @@ internal fun HoldToStopTrackingButton(
         Text(
             text = if (isHolding) progress.value.toCountdownLabel() else "Stop Tracking",
             color = textColor,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
     }
