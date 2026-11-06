@@ -127,6 +127,28 @@ class SessionInsightsViewModelTest {
         assertEquals(newLatestNight, viewModel.state.value.selectedNight)
     }
 
+    @Test
+    fun `toggle session collapse toggles collapsed state for session id`() = runTest {
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+
+        viewModel.onAction(SessionInsightsAction.OnToggleSessionCollapse("session-123"))
+        assertEquals(setOf("session-123"), viewModel.state.value.collapsedSessionIds)
+
+        viewModel.onAction(SessionInsightsAction.OnToggleSessionCollapse("session-123"))
+        assertEquals(emptySet<String>(), viewModel.state.value.collapsedSessionIds)
+    }
+
+    @Test
+    fun `toggle episode spans toggles expanded state for episode id`() = runTest {
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+
+        viewModel.onAction(SessionInsightsAction.OnToggleEpisodeSpans("episode-456"))
+        assertEquals(setOf("episode-456"), viewModel.state.value.expandedEpisodeIds)
+
+        viewModel.onAction(SessionInsightsAction.OnToggleEpisodeSpans("episode-456"))
+        assertEquals(emptySet<String>(), viewModel.state.value.expandedEpisodeIds)
+    }
+
     private fun sleepNight(
         date: LocalDate,
         sessionId: String
