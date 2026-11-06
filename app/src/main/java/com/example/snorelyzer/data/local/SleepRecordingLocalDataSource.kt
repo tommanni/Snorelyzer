@@ -11,6 +11,7 @@ interface SleepRecordingLocalDataSource {
     suspend fun insertEpisode(episode: RecordingEpisodeMetadata)
     suspend fun completeSession(session: RecordingSessionMetadata)
     suspend fun deleteSession(sessionId: String)
+    suspend fun deleteAllSessions()
     fun observeSessions(): Flow<List<RecordingSessionWithEpisodes>>
     fun observeSleepNights(zoneId: ZoneId): Flow<List<SleepNight>>
     fun observeEpisodesForSession(sessionId: String): Flow<List<RecordingEpisodeWithDetails>>
@@ -37,6 +38,10 @@ class RoomSleepRecordingDataSource(
 
     override suspend fun deleteSession(sessionId: String) {
         dao.deleteSession(sessionId)
+    }
+
+    override suspend fun deleteAllSessions() {
+        dao.deleteAllSessions()
     }
 
     override fun observeSessions(): Flow<List<RecordingSessionWithEpisodes>> {

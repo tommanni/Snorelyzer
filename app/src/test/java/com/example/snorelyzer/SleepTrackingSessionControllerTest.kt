@@ -212,6 +212,7 @@ class SleepTrackingSessionControllerTest {
         }
 
         override fun deleteClip(filePath: String): Boolean = true
+        override fun deleteAllClips(): Boolean = true
     }
 
     private companion object {

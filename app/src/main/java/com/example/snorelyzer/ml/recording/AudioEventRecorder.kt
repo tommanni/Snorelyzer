@@ -1,5 +1,7 @@
 package com.example.snorelyzer.ml.recording
 
+
+
 enum class RecordedEventGroup {
     Snoring,
     Gasp,
@@ -26,7 +28,7 @@ data class RecordedEventConfig(
     val postEventPadMillis: Long = 4_000L,
     val rollingBufferDurationMillis: Long = 330_000L,
     val clipStartOffsetMillis: Long = 7_000L,
-    val clipEndOffsetMillis: Long = 3_000L,
+    val clipEndOffsetMillis: Long = 6_000L,
     val minClipDurationMillis: Long = 5_000L,
     val episodeQuietTimeoutMillis: Long = 20_000L,
     val maxClipDurationMillis: Long = 5 * 60_000L,
@@ -212,7 +214,7 @@ class AudioEventRecorder(
     private fun closeEpisodeIfQuiet(windowStartMillis: Long) {
         val episode = activeEpisode ?: return
         val quietForMillis = windowStartMillis - episode.lastPositiveWindowStartMillis
-        if (quietForMillis >= config.episodeQuietTimeoutMillis) {
+        if (quietForMillis >= config.episodeQuietTimeoutMillis && state != RecorderState.ActiveEvent) {
             closeActiveEpisode()
         }
     }
@@ -289,11 +291,19 @@ class AudioEventRecorder(
 
         val availableStartMillis = rollingBuffer.availableStartMillis ?: return null
         val availableEndMillis = rollingBuffer.availableEndMillis ?: return null
+        
+        // Ensure we don't start the clip before the actual data starts
         val clipStartMillis = maxOf(rawClipStartMillis, availableStartMillis)
-        val clipEndMillis = minOf(cappedClipEndMillis, availableEndMillis)
+        
+        // IMPORTANT: The clip must end AFTER the clip start
+        val maxPossibleEndMillis = minOf(cappedClipEndMillis, availableEndMillis)
+        val clipEndMillis = maxOf(clipStartMillis + config.minClipDurationMillis, maxPossibleEndMillis)
+        
+        // Ensure the end is still bounded by available audio
+        val finalClipEndMillis = minOf(clipEndMillis, availableEndMillis)
 
-        return if (clipEndMillis > clipStartMillis) {
-            ClipBoundary(clipStartMillis, clipEndMillis)
+        return if (finalClipEndMillis > clipStartMillis) {
+            ClipBoundary(clipStartMillis, finalClipEndMillis)
         } else {
             null
         }

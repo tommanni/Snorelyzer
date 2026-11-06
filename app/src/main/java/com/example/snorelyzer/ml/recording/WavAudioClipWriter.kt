@@ -30,6 +30,12 @@ internal class WavAudioClipWriter internal constructor(
         return !file.exists() || file.delete()
     }
 
+    override fun deleteAllClips(): Boolean {
+        return recordingsDir.deleteRecursively().also {
+            recordingsDir.mkdirs()
+        }
+    }
+
     private fun writeWav(
         output: FileOutputStream,
         samples: FloatArray,

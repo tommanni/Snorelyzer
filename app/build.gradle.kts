@@ -66,6 +66,7 @@ dependencies {
     implementation(libs.jtransforms)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.ui)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

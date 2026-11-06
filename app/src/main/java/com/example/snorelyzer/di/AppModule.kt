@@ -23,6 +23,7 @@ import com.example.snorelyzer.presentation.insights.AnalyticsInsightsViewModel
 import com.example.snorelyzer.presentation.insights.InsightsViewModel
 import com.example.snorelyzer.presentation.insights.SessionInsightsViewModel
 import com.example.snorelyzer.presentation.record.RecordViewModel
+import com.example.snorelyzer.presentation.SettingsViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.viewModelOf
@@ -68,5 +69,6 @@ val appModule = module {
     viewModelOf(::InsightsViewModel)
     viewModelOf(::SessionInsightsViewModel)
     viewModelOf(::AnalyticsInsightsViewModel)
+    viewModelOf(::SettingsViewModel)
     viewModel { RecordViewModel(sessionStateSource = get()) }
 }
