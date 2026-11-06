@@ -20,13 +20,17 @@ data class SessionInsightsState(
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = true,
     val playingEpisodeId: String? = null,
-    val isPlayerPlaying: Boolean = false
+    val isPlayerPlaying: Boolean = false,
+    val collapsedSessionIds: Set<String> = emptySet(),
+    val expandedEpisodeIds: Set<String> = emptySet()
 )
 
 sealed interface SessionInsightsAction {
     data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
     data class OnTogglePlayback(val episodeId: String, val filePath: String) : SessionInsightsAction
     data object OnStopPlayback : SessionInsightsAction
+    data class OnToggleSessionCollapse(val sessionId: String) : SessionInsightsAction
+    data class OnToggleEpisodeSpans(val episodeId: String) : SessionInsightsAction
 }
 
 class SessionInsightsViewModel(
@@ -106,6 +110,26 @@ class SessionInsightsViewModel(
             }
             SessionInsightsAction.OnStopPlayback -> {
                 player.pause()
+            }
+            is SessionInsightsAction.OnToggleSessionCollapse -> {
+                _state.update { currentState ->
+                    val updatedCollapsed = if (currentState.collapsedSessionIds.contains(action.sessionId)) {
+                        currentState.collapsedSessionIds - action.sessionId
+                    } else {
+                        currentState.collapsedSessionIds + action.sessionId
+                    }
+                    currentState.copy(collapsedSessionIds = updatedCollapsed)
+                }
+            }
+            is SessionInsightsAction.OnToggleEpisodeSpans -> {
+                _state.update { currentState ->
+                    val updatedExpanded = if (currentState.expandedEpisodeIds.contains(action.episodeId)) {
+                        currentState.expandedEpisodeIds - action.episodeId
+                    } else {
+                        currentState.expandedEpisodeIds + action.episodeId
+                    }
+                    currentState.copy(expandedEpisodeIds = updatedExpanded)
+                }
             }
         }
     }
