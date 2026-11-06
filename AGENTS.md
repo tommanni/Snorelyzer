@@ -71,6 +71,54 @@ sealed interface RecordEvent {
   - Side effects must use `Channel<[Feature]Event>` exposed as `val events = _events.receiveAsFlow()`.
   - Handle actions in a single `fun onAction(action: [Feature]Action)` function.
 
+### C. Design System & UI Standards (Material 3 Expressive)
+All UI additions and updates must maintain a modern (2026+) Material 3 look and feel:
+
+1. **Database-to-UI Hierarchy Rule**:
+   - Always structure UI presentation to match the underlying Room database hierarchy:
+     `SleepNight` (Calendar/Date grouping) $\rightarrow$ `RecordingSession` (`recording_sessions`) $\rightarrow$ `RecordingEpisode` (`recording_episodes`) $\rightarrow$ `EventGroups` (`recording_episode_groups`) & `EventSpans` (`event_spans`).
+   - Do not flatten multi-tiered database records into flat lists; visually nest children inside parent containers.
+
+2. **Semantic M3 Color Roles**:
+   - Never hardcode static colors (e.g., `Color.White`, `Color.Gray`). Always use Material 3 semantic theme tokens.
+   - **Surface & Container Hierarchy**:
+     - Screen background: `MaterialTheme.colorScheme.background` / `surface`
+     - Hero / Overview summary cards: `surfaceContainerHigh`
+     - Section / Session container cards: `surfaceContainerLow`
+     - Child / Episode items: `surfaceContainer` or `surfaceContainerHighest`
+   - **Sound Event Semantic Palette** (apply consistently across recording & insights):
+     - **Snoring (`RecordedEventGroup.Snoring`)**: `primaryContainer` / `onPrimaryContainer` (`💤`)
+     - **Gasp / Snort (`RecordedEventGroup.Gasp`)**: `tertiaryContainer` / `onTertiaryContainer` (`😮`)
+     - **Cough (`RecordedEventGroup.Cough`)**: `errorContainer` / `onErrorContainer` (`😷`)
+     - **Sleep Talking (`RecordedEventGroup.SleepTalking`)**: `secondaryContainer` / `onSecondaryContainer` (`🗣️`)
+
+3. **Shapes & Corner Radii**:
+   - **Hero / Overview Cards**: `RoundedCornerShape(20.dp)` – `24.dp`
+   - **Container / Session Cards**: `RoundedCornerShape(16.dp)`
+   - **Child Items / Episodes**: `RoundedCornerShape(12.dp)`
+   - **Badges, Tags & Date Selector Pills**: `RoundedCornerShape(8.dp)` – `16.dp`
+   - **Action Buttons & Status Indicators**: `CircleShape`
+
+4. **Typography & Hierarchy**:
+   - Card / Section titles: `MaterialTheme.typography.titleMedium` (`FontWeight.Bold`)
+   - Hero metric values: `titleMedium` / `headlineSmall` (`FontWeight.Bold`)
+   - Badges & Chips: `MaterialTheme.typography.labelSmall` / `labelMedium` (`FontWeight.SemiBold`)
+   - Subtext / Metadata: `MaterialTheme.typography.bodySmall` / `labelSmall` with `onSurfaceVariant` or `outline`
+
+5. **Spacing & Padding Hygiene**:
+   - Screen horizontal padding: `16.dp` (avoid excessive nested paddings that squeeze cards on smaller displays)
+   - Vertical spacing between major cards: `12.dp` – `16.dp`
+   - Card internal padding: `16.dp` for parent containers, `12.dp` for child items
+
+6. **Micro-Interactions, Motion & Audio Visuals**:
+   - Apply `Modifier.animateContentSize()` on expandable cards and collapsible containers.
+   - Use `AnimatedVisibility` for toggling sub-elements (e.g., event spans breakdown or collapsed session episodes).
+   - Active playback: Use circular tonal icon buttons (`FilledTonalIconButton`) with dynamic state (play/pause) and an animated 4-bar equalizer wave during audio playback.
+   - Active tracking sessions: Feature an animated/pulsing indicator or distinct container tint.
+
+7. **Previews & Tooling**:
+   - Provide `@Preview` composables for both Light and Dark modes wrapped in `SnorelyzerTheme` for every screen and complex component.
+
 ---
 
 ## 4. Dependency Injection (Koin)
