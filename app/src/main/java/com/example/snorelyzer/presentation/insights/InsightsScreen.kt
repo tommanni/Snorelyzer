@@ -224,13 +224,6 @@ private fun InsightsPlaceholder(
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center
                 )
-
-                Text(
-                    text = "Weekly trends, snoring severity indexing, and sound distribution patterns will be visualized here.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
             }
         }
     }
@@ -274,7 +267,7 @@ fun SessionInsightsScreen(
 
     if (state.sleepNights.isEmpty()) {
         InsightsPlaceholder(
-            text = "No sleep sessions available.",
+            text = "Session insights content will appear here.",
             modifier = modifier
         )
         return
@@ -357,7 +350,7 @@ fun SessionInsightsScreen(
             }
         } else {
             InsightsPlaceholder(
-                text = "No sleep sessions available.",
+                text = "Session insights content will appear here.",
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -654,20 +647,6 @@ fun SleepEpisodeItem(
                             )
                         }
                     }
-
-                    if (hasAudioFile) {
-                        Text(
-                            text = if (isPlaying) "Playing audio recording..." else "Audio recording ready",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                        )
-                    } else {
-                        Text(
-                            text = "No audio clip stored",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
                 }
 
                 Row(
@@ -963,12 +942,6 @@ fun AnalyticsInsightsScreen(
                 analytics = state.multiNightAnalytics,
                 selectedDate = state.selectedTrendDate,
                 onSelectDate = { onAction(AnalyticsInsightsAction.OnSelectTrendNight(it)) }
-            )
-        }
-
-        item(key = "sleep_health_guidance") {
-            SleepHealthInsightsCard(
-                analytics = state.multiNightAnalytics
             )
         }
     }

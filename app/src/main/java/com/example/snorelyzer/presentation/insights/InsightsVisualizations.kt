@@ -29,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.HealthAndSafety
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Speed
@@ -82,26 +81,18 @@ fun SessionAnalyticsHeroCard(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header: Date & Sleep Night title
+            // Header: Date
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text(
-                        text = "Sleep Night Analytics",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                Text(
+                    text = formattedDate,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
 
                 Surface(
                     shape = CircleShape,
@@ -158,14 +149,6 @@ fun SessionAnalyticsHeroCard(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-
-                    Text(
-                        text = analytics.severity.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
             }
 
@@ -185,7 +168,7 @@ fun SessionAnalyticsHeroCard(
                     MetricTile(
                         label = "Sleep Duration",
                         value = formatDuration(analytics.totalSleepDurationMillis),
-                        subtext = "${analytics.totalEpisodes} episodes recorded",
+                        subtext = "${analytics.totalEpisodes} episodes",
                         icon = Icons.Outlined.Schedule,
                         modifier = Modifier.weight(1f)
                     )
@@ -197,7 +180,6 @@ fun SessionAnalyticsHeroCard(
                     MetricTile(
                         label = "Disturbance Rate",
                         value = "${String.format(Locale.US, "%.1f", analytics.disturbanceRatePerHour)}/h",
-                        subtext = "episodes per hour",
                         icon = Icons.Outlined.GraphicEq,
                         modifier = Modifier.weight(1f)
                     )
@@ -206,7 +188,7 @@ fun SessionAnalyticsHeroCard(
                         value = analytics.peakHourLabel ?: "None",
                         subtext = if (analytics.longestEpisodeMillis > 0) {
                             "Longest: ${analytics.longestEpisodeMillis / 1000}s"
-                        } else "No sound hits",
+                        } else null,
                         icon = Icons.AutoMirrored.Outlined.TrendingUp,
                         modifier = Modifier.weight(1f)
                     )
@@ -362,9 +344,9 @@ fun SnoreSeverityBadge(
 private fun MetricTile(
     label: String,
     value: String,
-    subtext: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtext: String? = null
 ) {
     Surface(
         modifier = modifier,
@@ -398,13 +380,15 @@ private fun MetricTile(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Text(
-                text = subtext,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (subtext != null) {
+                Text(
+                    text = subtext,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -577,20 +561,12 @@ fun MultiNightTrendCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text(
-                        text = "Weekly Trends",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "Snore Severity History",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+                Text(
+                    text = "Weekly Trends",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
 
                 SnoreSeverityBadge(severity = analytics.overallSeverity)
             }
@@ -703,117 +679,7 @@ private fun TrendBarColumn(
     }
 }
 
-@Composable
-fun SleepHealthInsightsCard(
-    analytics: MultiNightAnalytics,
-    modifier: Modifier = Modifier
-) {
-    ElevatedCard(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Outlined.HealthAndSafety,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
 
-                Column {
-                    Text(
-                        text = "Sleep Health & Hygiene",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Actionable acoustic sleep guidance",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            val gaspCount = analytics.soundTotals[RecordedEventGroup.Gasp] ?: 0
-            if (gaspCount > 0) {
-                InsightTipRow(
-                    icon = "😮",
-                    title = "Breathing Interruption Indicator",
-                    description = "$gaspCount gasping sounds detected across recorded sessions. Occasional gasping can be related to sleep position or airway resistance."
-                )
-            }
-
-            InsightTipRow(
-                icon = "🛌",
-                title = "Positional Sleeping",
-                description = "Sleeping on your side often reduces snoring frequency and intensity by up to 50% compared to sleeping on your back."
-            )
-
-            InsightTipRow(
-                icon = "💧",
-                title = "Bedroom Air Quality",
-                description = "Dry bedroom air can irritate throat and nasal passages. Maintaining 40-50% humidity can significantly reduce nocturnal coughing and snoring."
-            )
-        }
-    }
-}
-
-@Composable
-private fun InsightTipRow(
-    icon: String,
-    title: String,
-    description: String,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = icon,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun OverviewMetricItem(
