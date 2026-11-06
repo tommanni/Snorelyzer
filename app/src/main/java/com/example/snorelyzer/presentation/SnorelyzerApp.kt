@@ -2,40 +2,53 @@ package com.example.snorelyzer.presentation
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.example.snorelyzer.SleepTrackingSessionState
 import com.example.snorelyzer.presentation.insights.InsightsRoot
 import com.example.snorelyzer.presentation.record.ActiveSleepSessionRoot
@@ -61,7 +74,8 @@ private data class TopLevelDestination<T : Any>(
     val route: T,
     val routeClass: KClass<T>,
     val label: String,
-    val icon: ImageVector
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector
 )
 
 private val topLevelDestinations = listOf(
@@ -69,22 +83,26 @@ private val topLevelDestinations = listOf(
         route = RecordRoute,
         routeClass = RecordRoute::class,
         label = "Record",
-        icon = Icons.Outlined.Mic
+        selectedIcon = Icons.Filled.Mic,
+        unselectedIcon = Icons.Outlined.Mic
     ),
     TopLevelDestination(
         route = InsightsRoute,
         routeClass = InsightsRoute::class,
         label = "Insights",
-        icon = Icons.Outlined.BarChart
+        selectedIcon = Icons.Filled.BarChart,
+        unselectedIcon = Icons.Outlined.BarChart
     ),
     TopLevelDestination(
         route = SettingsRoute,
         routeClass = SettingsRoute::class,
         label = "Settings",
-        icon = Icons.Outlined.Settings
+        selectedIcon = Icons.Filled.Settings,
+        unselectedIcon = Icons.Outlined.Settings
     )
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SnorelyzerApp(
     onRequestRecordingPermission: ((Boolean) -> Unit) -> Unit,
@@ -143,9 +161,48 @@ fun SnorelyzerApp(
     Surface(color = MaterialTheme.colorScheme.background) {
         Box {
             Scaffold(
+                topBar = {
+                    if (!isActiveSessionRoute) {
+                        CenterAlignedTopAppBar(
+                            title = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Bedtime,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "Snorelyzer",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background
+                            )
+                        )
+                    }
+                },
                 bottomBar = {
                     if (!isActiveSessionRoute) {
-                        NavigationBar {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            tonalElevation = 3.dp
+                        ) {
                             topLevelDestinations.forEach { destination ->
                                 val selected = currentDestination?.hierarchy?.any {
                                     it.hasRoute(destination.routeClass)
@@ -164,11 +221,23 @@ fun SnorelyzerApp(
                                     },
                                     icon = {
                                         Icon(
-                                            imageVector = destination.icon,
+                                            imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
                                             contentDescription = destination.label
                                         )
                                     },
-                                    label = { Text(destination.label) }
+                                    label = {
+                                        Text(
+                                            text = destination.label,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 )
                             }
                         }

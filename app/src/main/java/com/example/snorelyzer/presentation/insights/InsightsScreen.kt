@@ -60,7 +60,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -133,8 +132,7 @@ fun InsightsScreen(
                 InsightsTab.Session -> SessionInsightsRoot(
                     modifier = Modifier.testTag(SessionInsightsContentTag)
                 )
-                InsightsTab.Analytics -> InsightsPlaceholder(
-                    text = "Analytics insights content will appear here.",
+                InsightsTab.Analytics -> AnalyticsInsightsRoot(
                     modifier = Modifier.testTag(AnalyticsInsightsContentTag)
                 )
             }
@@ -186,23 +184,55 @@ private fun InsightsPlaceholder(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Bedtime,
-            contentDescription = null,
-            modifier = Modifier.size(56.dp),
-            tint = MaterialTheme.colorScheme.outlineVariant
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Bedtime,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "Weekly trends, snoring severity indexing, and sound distribution patterns will be visualized here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 
@@ -269,7 +299,14 @@ fun SessionInsightsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item(key = "night_overview_${selectedNight.date}") {
-                    SleepNightOverviewCard(night = selectedNight)
+                    val analytics = state.selectedNightAnalytics
+                        ?: remember(selectedNight) { computeNightAnalytics(selectedNight) }
+                    val dateFormatter = remember { DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy") }
+                    val formattedDate = remember(selectedNight.date) { selectedNight.date.format(dateFormatter) }
+                    SessionAnalyticsHeroCard(
+                        analytics = analytics,
+                        formattedDate = formattedDate
+                    )
                 }
 
                 item(key = "sessions_header_${selectedNight.date}") {
@@ -404,145 +441,7 @@ private fun DateSelectorStrip(
     }
 }
 
-@Composable
-private fun SleepNightOverviewCard(
-    night: SleepNight,
-    modifier: Modifier = Modifier
-) {
-    val nowMillis = remember { System.currentTimeMillis() }
-    val totalDurationMillis = night.totalRecordingDurationMillis(nowMillis)
-    val totalEpisodes = night.episodeCount
 
-    val groupCounts = remember(night) {
-        val counts = mutableMapOf<RecordedEventGroup, Int>()
-        night.sessions.forEach { session ->
-            session.episodes.forEach { episode ->
-                episode.groups.forEach { groupEntity ->
-                    counts[groupEntity.group] = (counts[groupEntity.group] ?: 0) + 1
-                }
-            }
-        }
-        counts
-    }
-
-    val dateFormatter = remember { DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy") }
-    val formattedDate = remember(night.date) { night.date.format(dateFormatter) }
-
-    ElevatedCard(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "Sleep Night",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Outlined.Bedtime,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-            }
-
-            // Stats grid row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                OverviewStatItem(
-                    label = "Total Time",
-                    value = formatDuration(totalDurationMillis)
-                )
-                OverviewStatItem(
-                    label = "Sessions",
-                    value = night.sessions.size.toString()
-                )
-                OverviewStatItem(
-                    label = "Episodes",
-                    value = totalEpisodes.toString()
-                )
-            }
-
-            if (groupCounts.isNotEmpty()) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Detected Sounds Summary",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        RecordedEventGroup.entries.forEach { group ->
-                            val count = groupCounts[group] ?: 0
-                            if (count > 0) {
-                                GroupBadge(group = group, count = count)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun OverviewStatItem(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
 
 @Composable
 private fun RecordingSessionCard(
@@ -1013,50 +912,65 @@ private fun ModernAudioEqualizer(
     }
 }
 
-@Composable
-private fun groupColor(group: RecordedEventGroup): Pair<Color, Color> {
-    return when (group) {
-        RecordedEventGroup.Snoring -> Pair(
-            MaterialTheme.colorScheme.primaryContainer,
-            MaterialTheme.colorScheme.onPrimaryContainer
-        )
-        RecordedEventGroup.Gasp -> Pair(
-            MaterialTheme.colorScheme.tertiaryContainer,
-            MaterialTheme.colorScheme.onTertiaryContainer
-        )
-        RecordedEventGroup.Cough -> Pair(
-            MaterialTheme.colorScheme.errorContainer,
-            MaterialTheme.colorScheme.onErrorContainer
-        )
-        RecordedEventGroup.SleepTalking -> Pair(
-            MaterialTheme.colorScheme.secondaryContainer,
-            MaterialTheme.colorScheme.onSecondaryContainer
-        )
-    }
-}
-
-private fun groupEmoji(group: RecordedEventGroup): String {
-    return when (group) {
-        RecordedEventGroup.Snoring -> "💤"
-        RecordedEventGroup.Gasp -> "😮"
-        RecordedEventGroup.Cough -> "😷"
-        RecordedEventGroup.SleepTalking -> "🗣️"
-    }
-}
-
 private fun formatTimestamp(millis: Long, pattern: String): String {
     return DateTimeFormatter.ofPattern(pattern).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(millis))
 }
 
-private fun formatDuration(millis: Long): String {
-    val totalSeconds = (millis / 1000).coerceAtLeast(0)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m"
-        minutes > 0 -> "${minutes}m ${seconds}s"
-        else -> "${seconds}s"
+@Composable
+fun AnalyticsInsightsRoot(
+    modifier: Modifier = Modifier,
+    viewModel: AnalyticsInsightsViewModel = koinViewModel()
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    AnalyticsInsightsScreen(
+        state = state,
+        onAction = viewModel::onAction,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun AnalyticsInsightsScreen(
+    state: AnalyticsInsightsState,
+    onAction: (AnalyticsInsightsAction) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (state.isLoading) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    if (state.sleepNights.isEmpty()) {
+        InsightsPlaceholder(
+            text = "Analytics insights content will appear here.",
+            modifier = modifier
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item(key = "multi_night_trends") {
+            MultiNightTrendCard(
+                analytics = state.multiNightAnalytics,
+                selectedDate = state.selectedTrendDate,
+                onSelectDate = { onAction(AnalyticsInsightsAction.OnSelectTrendNight(it)) }
+            )
+        }
+
+        item(key = "sleep_health_guidance") {
+            SleepHealthInsightsCard(
+                analytics = state.multiNightAnalytics
+            )
+        }
     }
 }
 
@@ -1087,6 +1001,44 @@ private fun SessionInsightsScreenLightPreview() {
             )
         }
     }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Analytics Insights Screen - Dark")
+@Composable
+private fun AnalyticsInsightsScreenDarkPreview() {
+    com.example.snorelyzer.ui.theme.SnorelyzerTheme(darkTheme = true) {
+        Surface {
+            AnalyticsInsightsScreen(
+                state = previewAnalyticsSampleState,
+                onAction = {}
+            )
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Analytics Insights Screen - Light")
+@Composable
+private fun AnalyticsInsightsScreenLightPreview() {
+    com.example.snorelyzer.ui.theme.SnorelyzerTheme(darkTheme = false) {
+        Surface {
+            AnalyticsInsightsScreen(
+                state = previewAnalyticsSampleState,
+                onAction = {}
+            )
+        }
+    }
+}
+
+private val previewAnalyticsSampleState: AnalyticsInsightsState by lazy {
+    val date = LocalDate.of(2026, 11, 6)
+    val night = previewSampleState.selectedNight!!
+    val multi = computeMultiNightAnalytics(listOf(night))
+    AnalyticsInsightsState(
+        isLoading = false,
+        sleepNights = listOf(night),
+        multiNightAnalytics = multi,
+        selectedTrendDate = date
+    )
 }
 
 private val previewSampleState: SessionInsightsState by lazy {
@@ -1136,10 +1088,12 @@ private val previewSampleState: SessionInsightsState by lazy {
         date = date,
         sessions = listOf(session)
     )
+    val analytics = computeNightAnalytics(night)
     SessionInsightsState(
         sleepNights = listOf(night),
         selectedDate = date,
         selectedNight = night,
+        selectedNightAnalytics = analytics,
         availableDates = setOf(date, date.minusDays(1), date.minusDays(2)),
         isLoading = false,
         playingEpisodeId = "ep-1",
