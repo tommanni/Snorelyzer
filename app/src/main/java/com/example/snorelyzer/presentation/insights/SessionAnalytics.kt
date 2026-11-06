@@ -135,10 +135,11 @@ fun computeNightAnalytics(
 
     val durationHours = (totalSleepDuration / 3600000.0).coerceAtLeast(0.5)
     val disturbanceRatePerHour = (totalEpisodes / durationHours).toFloat()
+    val gaspsPerHour = (gaspCount / durationHours).toFloat()
 
-    val percentScore = (snorePercentage * 2.5f).coerceAtMost(60f)
-    val gaspPenalty = (gaspCount * 8f).coerceAtMost(25f)
-    val rateScore = (disturbanceRatePerHour * 2.5f).coerceAtMost(15f)
+    val percentScore = (snorePercentage * 1.0f).coerceAtMost(50f)
+    val gaspPenalty = (gaspsPerHour * 5.0f).coerceAtMost(30f)
+    val rateScore = (disturbanceRatePerHour * 2.5f).coerceAtMost(20f)
     val snoreScore = (percentScore + gaspPenalty + rateScore).roundToInt().coerceIn(0, 100)
 
     val severity = when {

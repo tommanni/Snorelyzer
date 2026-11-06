@@ -138,4 +138,111 @@ class SessionAnalyticsTest {
         assertEquals(2, multi.nightTrends.size)
         assertEquals(0, multi.avgSnoreScore)
     }
+
+    @Test
+    fun `gasp penalty scales with hourly rate rather than flat count`() {
+        val date = LocalDate.of(2026, 11, 6)
+        val startMillis = 1762464000000L
+        val eightHoursMillis = 8 * 3600000L // 8 hours
+
+        // 8 gasps across 8 hours = 1.0 gasp/hour -> penalty = 1.0 * 5.0 = 5 pts
+        val episodes = (0 until 8).map { i ->
+            val clipStart = startMillis + i * 3600000L
+            RecordingEpisodeWithDetails(
+                episode = RecordingEpisodeEntity(
+                    episodeId = "gasp_$i",
+                    sessionId = "s1",
+                    clipStartMillis = clipStart,
+                    clipEndMillis = clipStart + 2000L,
+                    durationMillis = 2000L,
+                    sampleRate = 16000,
+                    filePath = null
+                ),
+                groups = listOf(RecordingEpisodeGroupEntity("gasp_$i", RecordedEventGroup.Gasp)),
+                eventSpans = listOf(
+                    EventSpanEntity(
+                        id = i.toLong(),
+                        episodeId = "gasp_$i",
+                        group = RecordedEventGroup.Gasp,
+                        startedAtMillis = clipStart,
+                        endedAtMillis = clipStart + 2000L
+                    )
+                )
+            )
+        }
+
+        val night = SleepNight(
+            date = date,
+            sessions = listOf(
+                RecordingSessionWithEpisodes(
+                    session = RecordingSessionEntity(
+                        sessionId = "s1",
+                        startedAtMillis = startMillis,
+                        endedAtMillis = startMillis + eightHoursMillis
+                    ),
+                    episodes = episodes
+                )
+            )
+        )
+
+        val analytics = computeNightAnalytics(night, startMillis + eightHoursMillis, zoneId)
+
+        // 0% snoring (0 pts) + 1 gasp/hr * 5 (5 pts) + (8 eps / 8 hrs) * 2.5 (2.5 pts) = 7.5 -> round to 8 pts
+        assertEquals(8, analytics.snoreScore)
+        assertEquals(SnoreSeverity.Quiet, analytics.severity)
+    }
+
+    @Test
+    fun `snoring duration score scales beyond 24 percent without early ceiling`() {
+        val date = LocalDate.of(2026, 11, 6)
+        val startMillis = 1762464000000L
+        val tenHoursMillis = 10 * 3600000L // 10 hours
+
+        // 3 hours of snoring out of 10 hours = 30%
+        val threeHoursMillis = 3 * 3600000L
+        val episode = RecordingEpisodeWithDetails(
+            episode = RecordingEpisodeEntity(
+                episodeId = "snore_ep",
+                sessionId = "s1",
+                clipStartMillis = startMillis,
+                clipEndMillis = startMillis + threeHoursMillis,
+                durationMillis = threeHoursMillis,
+                sampleRate = 16000,
+                filePath = null
+            ),
+            groups = listOf(RecordingEpisodeGroupEntity("snore_ep", RecordedEventGroup.Snoring)),
+            eventSpans = listOf(
+                EventSpanEntity(
+                    id = 1L,
+                    episodeId = "snore_ep",
+                    group = RecordedEventGroup.Snoring,
+                    startedAtMillis = startMillis,
+                    endedAtMillis = startMillis + threeHoursMillis
+                )
+            )
+        )
+
+        val night = SleepNight(
+            date = date,
+            sessions = listOf(
+                RecordingSessionWithEpisodes(
+                    session = RecordingSessionEntity(
+                        sessionId = "s1",
+                        startedAtMillis = startMillis,
+                        endedAtMillis = startMillis + tenHoursMillis
+                    ),
+                    episodes = listOf(episode)
+                )
+            )
+        )
+
+        val analytics = computeNightAnalytics(night, startMillis + tenHoursMillis, zoneId)
+
+        // snorePercentage = 30%, percentScore = 30 * 1.0 = 30 pts
+        // disturbanceRate = 1 episode / 10 hrs = 0.1/hr -> rateScore = 0.1 * 2.5 = 0.25 pts
+        // Total = 30.25 -> round to 30 pts
+        assertEquals(30f, analytics.snorePercentage, 0.01f)
+        assertEquals(30, analytics.snoreScore)
+        assertEquals(SnoreSeverity.Mild, analytics.severity)
+    }
 }
