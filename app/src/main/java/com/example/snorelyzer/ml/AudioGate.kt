@@ -39,6 +39,7 @@ class AudioGate {
 
     private var chunkCount = 0
     private var tailRemaining = 0
+    private var continuousActivityChunks = 0
     private var noiseFloorDb = Float.NaN
     private var backgroundZcr = Float.NaN
     private var backgroundCrestFactor = Float.NaN
@@ -46,6 +47,7 @@ class AudioGate {
     fun reset() {
         chunkCount = 0
         tailRemaining = 0
+        continuousActivityChunks = 0
         noiseFloorDb = Float.NaN
         backgroundZcr = Float.NaN
         backgroundCrestFactor = Float.NaN
@@ -85,15 +87,16 @@ class AudioGate {
         val isStableBackground = !hasStrongActivity && activityScore < 4
 
         val isWarmingUp = chunkCount < warmupChunks
-        val shouldInfer: Boolean
-        val state: AudioGateState
-        val triggerType: String
+        var shouldInfer: Boolean
+        var state: AudioGateState
+        var triggerType: String
 
         when {
             isWarmingUp -> {
-                shouldInfer = true
+                shouldInfer = false
                 state = AudioGateState.WarmingUp
                 triggerType = "warmup"
+                continuousActivityChunks = 0
                 updateBackground(features, upwardAlpha = 0.20f, downwardAlpha = 0.35f)
             }
             !isStableBackground -> {
@@ -101,19 +104,37 @@ class AudioGate {
                 state = AudioGateState.Candidate
                 triggerType = "activity"
                 tailRemaining = tailChunks
+                continuousActivityChunks++
+                updateBackground(features, upwardAlpha = 0.005f, downwardAlpha = 0.05f)
             }
             tailRemaining > 0 -> {
                 shouldInfer = true
                 state = AudioGateState.Tail
                 triggerType = "tail"
                 tailRemaining--
+                continuousActivityChunks++
+                updateBackground(features, upwardAlpha = 0.005f, downwardAlpha = 0.05f)
             }
             else -> {
                 shouldInfer = false
                 state = AudioGateState.Background
                 triggerType = "stableBackground"
-                updateBackground(features, upwardAlpha = 0.01f, downwardAlpha = 0.12f)
+                continuousActivityChunks = 0
+                updateBackground(features, upwardAlpha = 0.05f, downwardAlpha = 0.02f)
             }
+        }
+        
+        if (continuousActivityChunks > 10) {
+            shouldInfer = false
+            state = AudioGateState.Background
+            triggerType = "timeoutReset"
+            continuousActivityChunks = 0
+            tailRemaining = 0
+            
+            // Hard snap the baseline to the current environment
+            noiseFloorDb = features.rmsDb
+            backgroundZcr = features.zcr
+            backgroundCrestFactor = features.crestFactor
         }
 
         chunkCount++
@@ -143,10 +164,10 @@ class AudioGate {
         crestDelta: Float,
         zcrDelta: Float
     ): Boolean {
-        return relativeDb >= 3.0f ||
-            maxFrameRelativeDb >= 8.0f ||
-            crestDelta >= 1.4f ||
-            zcrDelta >= 0.025f
+        return relativeDb >= 10.0f ||
+            maxFrameRelativeDb >= 20.0f ||
+            crestDelta >= 3.0f ||
+            zcrDelta >= 0.045f
     }
 
     private fun extractFeatures(audioData: FloatArray): GateFeatures {
@@ -219,11 +240,11 @@ class AudioGate {
         zcrDelta: Float
     ): List<String> {
         val reasons = mutableListOf<String>()
-        if (relativeDb >= 1.2f) reasons += "energy"
-        if (maxFrameRelativeDb >= 5.0f) reasons += "frameEnergy"
-        if (onsetDb >= 5.5f) reasons += "onset"
-        if (crestDelta >= 0.7f) reasons += "crest"
-        if (zcrDelta >= 0.016f) reasons += "zcr"
+        if (relativeDb >= 8.5f) reasons += "energy"
+        if (maxFrameRelativeDb >= 16.0f) reasons += "frameEnergy"
+        if (onsetDb >= 12.0f) reasons += "onset"
+        if (crestDelta >= 1.5f) reasons += "crest"
+        if (zcrDelta >= 0.030f) reasons += "zcr"
         if (reasons.isEmpty()) reasons += "stable"
         return reasons
     }
@@ -236,11 +257,11 @@ class AudioGate {
         zcrDelta: Float
     ): Int {
         var score = 0
-        if (relativeDb >= 1.2f) score++
-        if (maxFrameRelativeDb >= 5.0f) score++
-        if (onsetDb >= 5.5f) score++
-        if (crestDelta >= 0.7f) score++
-        if (zcrDelta >= 0.016f) score++
+        if (relativeDb >= 8.5f) score++
+        if (maxFrameRelativeDb >= 16.0f) score++
+        if (onsetDb >= 12.0f) score++
+        if (crestDelta >= 1.5f) score++
+        if (zcrDelta >= 0.030f) score++
         return score
     }
 

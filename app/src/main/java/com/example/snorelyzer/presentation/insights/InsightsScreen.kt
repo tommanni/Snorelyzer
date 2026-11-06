@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -23,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -162,6 +164,13 @@ fun SessionInsightsRoot(
     viewModel: SessionInsightsViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.onAction(SessionInsightsAction.OnStopPlayback)
+        }
+    }
+    
     SessionInsightsScreen(
         state = state,
         onAction = viewModel::onAction,
@@ -182,13 +191,16 @@ fun SessionInsightsScreen(
             contentPadding = PaddingValues(16.dp)
         ) {
             items(selectedNight.allEpisodes) { episodeWithDetails ->
+                val isActiveEpisode = state.playingEpisodeId == episodeWithDetails.episode.episodeId
+                val isPlaying = isActiveEpisode && state.isPlayerPlaying
                 SleepEpisodeItem(
                     episodeDetails = episodeWithDetails,
-                    onPlayClick = {
+                    isPlaying = isPlaying,
+                    onTogglePlayClick = {
                         val filePath = episodeWithDetails.episode.filePath
                         if (filePath != null) {
                             onAction(
-                                SessionInsightsAction.OnPlayEpisodeClick(
+                                SessionInsightsAction.OnTogglePlayback(
                                     episodeId = episodeWithDetails.episode.episodeId,
                                     filePath = filePath
                                 )
@@ -209,7 +221,8 @@ fun SessionInsightsScreen(
 @Composable
 fun SleepEpisodeItem(
     episodeDetails: RecordingEpisodeWithDetails,
-    onPlayClick: () -> Unit,
+    isPlaying: Boolean,
+    onTogglePlayClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val episode = episodeDetails.episode
@@ -238,10 +251,12 @@ fun SleepEpisodeItem(
             }
             
             IconButton(
-                onClick = onPlayClick,
+                onClick = onTogglePlayClick,
                 enabled = episode.filePath != null
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play audio")
+                val icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
+                val contentDesc = if (isPlaying) "Pause audio" else "Play audio"
+                Icon(icon, contentDescription = contentDesc)
             }
         }
     }

@@ -374,6 +374,8 @@ class AudioEventRecorderTest {
             deletedClips += filePath
             return true
         }
+
+        override fun deleteAllClips(): Boolean = true
     }
 
     private class FakeRecordingMetadataSink : RecordingMetadataSink {

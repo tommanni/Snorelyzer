@@ -105,6 +105,6 @@ class RecordViewModel(
     }
 
     private companion object {
-        const val MinimumRecordingDurationMillis = 10 * 60 * 1_000L
+        const val MinimumRecordingDurationMillis = 0L // 10 * 60 * 1_000L
     }
 }

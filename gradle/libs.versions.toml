@@ -48,6 +48,7 @@ androidx-room-testing = { group = "androidx.room", name = "room-testing", versio
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version = "1.5.1" }
 androidx-media3-common = { group = "androidx.media3", name = "media3-common", version = "1.5.1" }
+androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version = "1.5.1" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

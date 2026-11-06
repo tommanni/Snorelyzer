@@ -5,15 +5,38 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SleepRecordingDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertSession(session: RecordingSessionEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSession(session: RecordingSessionEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertEpisode(episode: RecordingEpisodeEntity)
+    @Update
+    suspend fun updateSession(session: RecordingSessionEntity)
+
+    @Transaction
+    suspend fun upsertSession(session: RecordingSessionEntity) {
+        val id = insertSession(session)
+        if (id == -1L) {
+            updateSession(session)
+        }
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertEpisode(episode: RecordingEpisodeEntity): Long
+
+    @Update
+    suspend fun updateEpisode(episode: RecordingEpisodeEntity)
+
+    @Transaction
+    suspend fun upsertEpisode(episode: RecordingEpisodeEntity) {
+        val id = insertEpisode(episode)
+        if (id == -1L) {
+            updateEpisode(episode)
+        }
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGroups(groups: List<RecordingEpisodeGroupEntity>)
@@ -29,6 +52,9 @@ interface SleepRecordingDao {
 
     @Query("DELETE FROM recording_sessions WHERE sessionId = :sessionId")
     suspend fun deleteSession(sessionId: String)
+
+    @Query("DELETE FROM recording_sessions")
+    suspend fun deleteAllSessions()
 
     @Transaction
     suspend fun upsertEpisodeWithDetails(

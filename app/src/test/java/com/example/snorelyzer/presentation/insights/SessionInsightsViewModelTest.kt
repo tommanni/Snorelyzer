@@ -1,5 +1,7 @@
 package com.example.snorelyzer.presentation.insights
 
+import androidx.media3.common.Player
+import java.lang.reflect.Proxy
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionEntity
 import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
@@ -34,7 +36,7 @@ class SessionInsightsViewModelTest {
 
     @Test
     fun `initial state is loading until sleep nights emit`() = runTest {
-        val viewModel = SessionInsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
 
         advanceUntilIdle()
 
@@ -48,7 +50,7 @@ class SessionInsightsViewModelTest {
     fun `first emitted sleep nights select latest night`() = runTest {
         val latestNight = sleepNight(LocalDate.of(2026, 6, 10), "latest")
         val olderNight = sleepNight(LocalDate.of(2026, 6, 9), "older")
-        val viewModel = SessionInsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
 
         sleepNights.emit(listOf(latestNight, olderNight))
         advanceUntilIdle()
@@ -64,7 +66,7 @@ class SessionInsightsViewModelTest {
     fun `date selection updates selected night when date is available`() = runTest {
         val latestNight = sleepNight(LocalDate.of(2026, 6, 10), "latest")
         val olderNight = sleepNight(LocalDate.of(2026, 6, 9), "older")
-        val viewModel = SessionInsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
 
         sleepNights.emit(listOf(latestNight, olderNight))
         viewModel.onAction(SessionInsightsAction.OnDateSelected(olderNight.date))
@@ -78,7 +80,7 @@ class SessionInsightsViewModelTest {
     fun `date selection keeps empty selected date when no night exists`() = runTest {
         val latestNight = sleepNight(LocalDate.of(2026, 6, 10), "latest")
         val emptyDate = LocalDate.of(2026, 6, 8)
-        val viewModel = SessionInsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
 
         sleepNights.emit(listOf(latestNight))
         viewModel.onAction(SessionInsightsAction.OnDateSelected(emptyDate))
@@ -94,7 +96,7 @@ class SessionInsightsViewModelTest {
         val selectedNight = sleepNight(LocalDate.of(2026, 6, 9), "selected")
         val newLatestNight = sleepNight(LocalDate.of(2026, 6, 11), "new-latest")
         val updatedSelectedNight = sleepNight(LocalDate.of(2026, 6, 9), "updated-selected")
-        val viewModel = SessionInsightsViewModel(localDataSource)
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
 
         sleepNights.emit(listOf(firstLatestNight, selectedNight))
         viewModel.onAction(SessionInsightsAction.OnDateSelected(selectedNight.date))
@@ -103,6 +105,26 @@ class SessionInsightsViewModelTest {
 
         assertEquals(selectedNight.date, viewModel.state.value.selectedDate)
         assertEquals(updatedSelectedNight, viewModel.state.value.selectedNight)
+    }
+
+    @Test
+    fun `sleep night updates automatically select new latest night when user has not manually selected date`() = runTest {
+        val firstLatestNight = sleepNight(LocalDate.of(2026, 6, 10), "first-latest")
+        val olderNight = sleepNight(LocalDate.of(2026, 6, 9), "older")
+        val newLatestNight = sleepNight(LocalDate.of(2026, 6, 11), "new-latest")
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+
+        sleepNights.emit(listOf(firstLatestNight, olderNight))
+        advanceUntilIdle()
+
+        assertEquals(firstLatestNight.date, viewModel.state.value.selectedDate)
+        assertEquals(firstLatestNight, viewModel.state.value.selectedNight)
+
+        sleepNights.emit(listOf(newLatestNight, firstLatestNight, olderNight))
+        advanceUntilIdle()
+
+        assertEquals(newLatestNight.date, viewModel.state.value.selectedDate)
+        assertEquals(newLatestNight, viewModel.state.value.selectedNight)
     }
 
     private fun sleepNight(
@@ -125,6 +147,25 @@ class SessionInsightsViewModelTest {
     }
 }
 
+private class FakePlayer : Player by (Proxy.newProxyInstance(
+    Player::class.java.classLoader,
+    arrayOf(Player::class.java)
+) { proxy, method, args ->
+    when (method.name) {
+        "toString" -> "FakePlayer"
+        "hashCode" -> 1
+        "equals" -> args?.getOrNull(0) === proxy
+        else -> when (method.returnType) {
+            java.lang.Boolean.TYPE -> false
+            java.lang.Integer.TYPE -> 0
+            java.lang.Long.TYPE -> 0L
+            java.lang.Float.TYPE -> 0f
+            java.lang.Double.TYPE -> 0.0
+            else -> null
+        }
+    }
+} as Player)
+
 private class FakeSleepRecordingLocalDataSource(
     private val sleepNights: Flow<List<SleepNight>>
 ) : SleepRecordingLocalDataSource {
@@ -135,6 +176,8 @@ private class FakeSleepRecordingLocalDataSource(
     override suspend fun completeSession(session: RecordingSessionMetadata) = Unit
 
     override suspend fun deleteSession(sessionId: String) = Unit
+
+    override suspend fun deleteAllSessions() = Unit
 
     override fun observeSessions(): Flow<List<RecordingSessionWithEpisodes>> = emptyFlow()
 

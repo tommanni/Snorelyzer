@@ -2,6 +2,8 @@ package com.example.snorelyzer.presentation.insights
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.data.local.SleepRecordingLocalDataSource
 import java.time.LocalDate
@@ -16,25 +18,50 @@ data class SessionInsightsState(
     val selectedDate: LocalDate? = null,
     val selectedNight: SleepNight? = null,
     val availableDates: Set<LocalDate> = emptySet(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val playingEpisodeId: String? = null,
+    val isPlayerPlaying: Boolean = false
 )
 
 sealed interface SessionInsightsAction {
     data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
-    data class OnPlayEpisodeClick(val episodeId: String, val filePath: String) : SessionInsightsAction
+    data class OnTogglePlayback(val episodeId: String, val filePath: String) : SessionInsightsAction
+    data object OnStopPlayback : SessionInsightsAction
 }
 
 class SessionInsightsViewModel(
-    private val localDataSource: SleepRecordingLocalDataSource
+    private val localDataSource: SleepRecordingLocalDataSource,
+    private val player: Player
 ) : ViewModel() {
     private val _state = MutableStateFlow(SessionInsightsState())
     val state = _state.asStateFlow()
 
+    private var isManualDateSelection = false
+
     init {
+        player.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _state.update { it.copy(isPlayerPlaying = isPlaying) }
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    _state.update { it.copy(isPlayerPlaying = false, playingEpisodeId = null) }
+                }
+            }
+        })
+        
         viewModelScope.launch {
             localDataSource.observeSleepNights(ZoneId.systemDefault()).collect { sleepNights ->
                 _state.update { currentState ->
-                    val selectedDate = currentState.selectedDate ?: sleepNights.firstOrNull()?.date
+                    val selectedDate = if (isManualDateSelection &&
+                        currentState.selectedDate != null &&
+                        sleepNights.any { it.date == currentState.selectedDate }
+                    ) {
+                        currentState.selectedDate
+                    } else {
+                        isManualDateSelection = false
+                        sleepNights.firstOrNull()?.date
+                    }
 
                     currentState.copy(
                         sleepNights = sleepNights,
@@ -51,6 +78,7 @@ class SessionInsightsViewModel(
     fun onAction(action: SessionInsightsAction) {
         when (action) {
             is SessionInsightsAction.OnDateSelected -> {
+                isManualDateSelection = true
                 _state.update { currentState ->
                     currentState.copy(
                         selectedDate = action.date,
@@ -58,9 +86,32 @@ class SessionInsightsViewModel(
                     )
                 }
             }
-            is SessionInsightsAction.OnPlayEpisodeClick -> {
-                // TODO: Implement ExoPlayer playback logic here
+            is SessionInsightsAction.OnTogglePlayback -> {
+                val currentState = _state.value
+                if (currentState.playingEpisodeId == action.episodeId) {
+                    if (player.isPlaying) {
+                        player.pause()
+                    } else {
+                        player.play()
+                    }
+                } else {
+                    player.setMediaItem(MediaItem.fromUri(action.filePath))
+                    player.prepare()
+                    player.play()
+                    
+                    _state.update { currentState ->
+                        currentState.copy(playingEpisodeId = action.episodeId)
+                    }
+                }
+            }
+            SessionInsightsAction.OnStopPlayback -> {
+                player.pause()
             }
         }
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        player.release()
     }
 }
