@@ -11,6 +11,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -77,14 +76,20 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
 import java.util.Locale
 
 @Composable
 fun InsightsRoot(
-    viewModel: InsightsViewModel = koinViewModel()
+    viewModel: InsightsViewModel = koinViewModel(),
+    sessionViewModel: SessionInsightsViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    val sessionState by sessionViewModel.state.collectAsStateWithLifecycle()
+
+    DisposableEffect(state.selectedTab, sessionViewModel) {
+        onDispose { sessionViewModel.onAction(SessionInsightsAction.OnStopPlayback) }
+    }
 
     BackHandler(enabled = state.selectedTab == InsightsTab.Analytics) {
         viewModel.onAction(InsightsAction.OnTabSelected(InsightsTab.Session))
@@ -92,32 +97,56 @@ fun InsightsRoot(
 
     InsightsScreen(
         state = state,
-        onAction = viewModel::onAction
+        onAction = viewModel::onAction,
+        sessionState = sessionState,
+        onSessionAction = sessionViewModel::onAction
     )
 }
 
 @Composable
 fun InsightsScreen(
     state: InsightsState,
-    onAction: (InsightsAction) -> Unit
+    onAction: (InsightsAction) -> Unit,
+    sessionState: SessionInsightsState,
+    onSessionAction: (SessionInsightsAction) -> Unit
 ) {
+    if (state.selectedTab == InsightsTab.Session && sessionState.isDatePickerVisible &&
+        sessionState.availableDates.isNotEmpty()
+    ) {
+        NightDatePickerDialog(
+            selectedDate = sessionState.selectedDate,
+            availableDates = sessionState.availableDates,
+            onDateSelected = { onSessionAction(SessionInsightsAction.OnDateSelected(it)) },
+            onDismiss = { onSessionAction(SessionInsightsAction.OnDismissDatePicker) }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        PrimaryScrollableTabRow(
-            selectedTabIndex = state.selectedTab.ordinal,
-            modifier = Modifier.fillMaxWidth(),
-            edgePadding = 0.dp,
-            divider = {}
-        ) {
-            InsightsTab.entries.forEach { tab ->
-                InsightsTabItem(
-                    text = tab.label,
-                    selected = state.selectedTab == tab,
-                    onClick = { onAction(InsightsAction.OnTabSelected(tab)) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PrimaryScrollableTabRow(
+                selectedTabIndex = state.selectedTab.ordinal,
+                modifier = Modifier.weight(1f),
+                edgePadding = 0.dp,
+                divider = {}
+            ) {
+                InsightsTab.entries.forEach { tab ->
+                    InsightsTabItem(
+                        text = tab.label,
+                        selected = state.selectedTab == tab,
+                        onClick = { onAction(InsightsAction.OnTabSelected(tab)) }
+                    )
+                }
+            }
+            if (state.selectedTab == InsightsTab.Session) {
+                NightCalendarButton(
+                    selectedDate = sessionState.selectedDate,
+                    enabled = !sessionState.isLoading && sessionState.availableDates.isNotEmpty(),
+                    onClick = { onSessionAction(SessionInsightsAction.OnShowDatePicker) }
                 )
             }
         }
@@ -129,7 +158,9 @@ fun InsightsScreen(
             contentAlignment = Alignment.Center
         ) {
             when (state.selectedTab) {
-                InsightsTab.Session -> SessionInsightsRoot(
+                InsightsTab.Session -> SessionInsightsScreen(
+                    state = sessionState,
+                    onAction = onSessionAction,
                     modifier = Modifier.testTag(SessionInsightsContentTag)
                 )
                 InsightsTab.Analytics -> AnalyticsInsightsRoot(
@@ -230,26 +261,6 @@ private fun InsightsPlaceholder(
 }
 
 @Composable
-fun SessionInsightsRoot(
-    modifier: Modifier = Modifier,
-    viewModel: SessionInsightsViewModel = koinViewModel()
-) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.onAction(SessionInsightsAction.OnStopPlayback)
-        }
-    }
-
-    SessionInsightsScreen(
-        state = state,
-        onAction = viewModel::onAction,
-        modifier = modifier
-    )
-}
-
-@Composable
 fun SessionInsightsScreen(
     state: SessionInsightsState,
     onAction: (SessionInsightsAction) -> Unit,
@@ -277,13 +288,6 @@ fun SessionInsightsScreen(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Date selector strip at the top
-        DateSelectorStrip(
-            availableDates = state.availableDates,
-            selectedDate = state.selectedDate,
-            onDateSelected = { onAction(SessionInsightsAction.OnDateSelected(it)) }
-        )
-
         val selectedNight = state.selectedNight
         if (selectedNight != null) {
             LazyColumn(
@@ -298,7 +302,15 @@ fun SessionInsightsScreen(
                     val formattedDate = remember(selectedNight.date) { selectedNight.date.format(dateFormatter) }
                     SessionAnalyticsHeroCard(
                         analytics = analytics,
-                        formattedDate = formattedDate
+                        formattedDate = formattedDate,
+                        dateNavigation = {
+                            NightDateNavigation(
+                                selectedDate = selectedNight.date,
+                                availableDates = state.availableDates,
+                                onDateSelected = { onAction(SessionInsightsAction.OnDateSelected(it)) },
+                                onOpenCalendar = { onAction(SessionInsightsAction.OnShowDatePicker) }
+                            )
+                        }
                     )
                 }
 
@@ -356,85 +368,6 @@ fun SessionInsightsScreen(
         }
     }
 }
-
-@Composable
-private fun DateSelectorStrip(
-    availableDates: Set<LocalDate>,
-    selectedDate: LocalDate?,
-    onDateSelected: (LocalDate) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val sortedDates = remember(availableDates) {
-        availableDates.sortedDescending()
-    }
-
-    if (sortedDates.isEmpty()) return
-
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(sortedDates, key = { it.toString() }) { date ->
-            val isSelected = date == selectedDate
-            val dayOfWeek = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-            val dayOfMonth = date.dayOfMonth.toString()
-            val month = date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-
-            Surface(
-                onClick = { onDateSelected(date) },
-                shape = RoundedCornerShape(16.dp),
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
-                },
-                tonalElevation = if (isSelected) 4.dp else 1.dp,
-                modifier = Modifier
-                    .height(68.dp)
-                    .width(60.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = dayOfWeek,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                    )
-                    Text(
-                        text = dayOfMonth,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                    Text(
-                        text = month,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-
 
 @Composable
 private fun RecordingSessionCard(
@@ -1073,4 +1006,23 @@ private val previewSampleState: SessionInsightsState by lazy {
         isPlayerPlaying = true,
         expandedEpisodeIds = setOf("ep-1")
     )
+}
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Insights - Light")
+@androidx.compose.ui.tooling.preview.Preview(
+    name = "Insights - Dark",
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
+)
+@Composable
+private fun InsightsScreenPreview() {
+    com.example.snorelyzer.ui.theme.SnorelyzerTheme(darkTheme = isSystemInDarkTheme()) {
+        Surface {
+            InsightsScreen(
+                state = InsightsState(),
+                onAction = {},
+                sessionState = previewSampleState,
+                onSessionAction = {}
+            )
+        }
+    }
 }

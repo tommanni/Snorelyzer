@@ -149,6 +149,33 @@ class SessionInsightsViewModelTest {
         assertEquals(emptySet<String>(), viewModel.state.value.expandedEpisodeIds)
     }
 
+    @Test
+    fun `calendar dismissal preserves night and confirmation selects another night`() = runTest {
+        val latest = sleepNight(LocalDate.of(2026, 6, 10), "latest")
+        val older = sleepNight(LocalDate.of(2026, 6, 7), "older")
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        sleepNights.emit(listOf(latest, older))
+        advanceUntilIdle()
+
+        viewModel.onAction(SessionInsightsAction.OnShowDatePicker)
+        assertTrue(viewModel.state.value.isDatePickerVisible)
+        viewModel.onAction(SessionInsightsAction.OnDismissDatePicker)
+        assertFalse(viewModel.state.value.isDatePickerVisible)
+        assertEquals(latest.date, viewModel.state.value.selectedDate)
+
+        viewModel.onAction(SessionInsightsAction.OnShowDatePicker)
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(older.date))
+        assertFalse(viewModel.state.value.isDatePickerVisible)
+        assertEquals(older, viewModel.state.value.selectedNight)
+    }
+
+    @Test
+    fun `calendar cannot open without recorded nights`() = runTest {
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        viewModel.onAction(SessionInsightsAction.OnShowDatePicker)
+        assertFalse(viewModel.state.value.isDatePickerVisible)
+    }
+
     private fun sleepNight(
         date: LocalDate,
         sessionId: String

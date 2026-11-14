@@ -20,6 +20,7 @@ data class SessionInsightsState(
     val selectedNightAnalytics: NightAnalytics? = null,
     val availableDates: Set<LocalDate> = emptySet(),
     val isLoading: Boolean = true,
+    val isDatePickerVisible: Boolean = false,
     val playingEpisodeId: String? = null,
     val isPlayerPlaying: Boolean = false,
     val collapsedSessionIds: Set<String> = emptySet(),
@@ -27,6 +28,8 @@ data class SessionInsightsState(
 )
 
 sealed interface SessionInsightsAction {
+    data object OnShowDatePicker : SessionInsightsAction
+    data object OnDismissDatePicker : SessionInsightsAction
     data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
     data class OnTogglePlayback(val episodeId: String, val filePath: String) : SessionInsightsAction
     data object OnStopPlayback : SessionInsightsAction
@@ -86,6 +89,12 @@ class SessionInsightsViewModel(
 
     fun onAction(action: SessionInsightsAction) {
         when (action) {
+            SessionInsightsAction.OnShowDatePicker -> {
+                _state.update { it.copy(isDatePickerVisible = it.availableDates.isNotEmpty()) }
+            }
+            SessionInsightsAction.OnDismissDatePicker -> {
+                _state.update { it.copy(isDatePickerVisible = false) }
+            }
             is SessionInsightsAction.OnDateSelected -> {
                 isManualDateSelection = true
                 _state.update { currentState ->
@@ -94,7 +103,8 @@ class SessionInsightsViewModel(
                     currentState.copy(
                         selectedDate = action.date,
                         selectedNight = night,
-                        selectedNightAnalytics = analytics
+                        selectedNightAnalytics = analytics,
+                        isDatePickerVisible = false
                     )
                 }
             }

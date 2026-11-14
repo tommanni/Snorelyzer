@@ -85,7 +85,7 @@ class SleepRecordingDaoTest {
         val episodeDetails = dataSource.observeEpisodesForSession("session-1").first().single()
 
         assertEquals(20_000L, sessions.single().session.endedAtMillis)
-        assertEquals("episode-1", sessions.single().episodes.single().episodeId)
+        assertEquals("episode-1", sessions.single().episodes.single().episode.episodeId)
         assertEquals(setOf(RecordedEventGroup.Snoring, RecordedEventGroup.Gasp), episodeDetails.groups.map { it.group }.toSet())
         assertEquals(2, episodeDetails.eventSpans.size)
         assertFalse(RecordingEpisodeEntity::class.java.declaredFields.any { it.name.contains("probability", ignoreCase = true) })
