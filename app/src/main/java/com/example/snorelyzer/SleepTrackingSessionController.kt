@@ -49,6 +49,7 @@ class SleepTrackingSessionController(
     fun onAudioChunk(chunk: FloatArray, chunkStartMillis: Long) {
         val pipeline = audioProcessingPipeline ?: return
         audioEventRecorder.onAudioChunk(chunk, chunkStartMillis)
+        val windowEndMillis = chunkStartMillis + chunk.size * 1_000L / audioEventRecorder.config.sampleRate
 
         when (
             val result = pipeline.processChunk(
@@ -58,7 +59,7 @@ class SleepTrackingSessionController(
             )
         ) {
             is AudioProcessingResult.Skipped -> {
-                audioEventRecorder.onClassificationWindow(result.windowStartMillis, emptyList())
+                audioEventRecorder.onClassificationWindow(result.windowStartMillis, windowEndMillis, emptyList())
                 _state.value = _state.value.copy(
                     latestStatus = "Listening for sleep events...",
                     latestResults = emptyList()
@@ -67,6 +68,7 @@ class SleepTrackingSessionController(
             is AudioProcessingResult.Classified -> {
                 audioEventRecorder.onClassificationWindow(
                     result.windowStartMillis,
+                    windowEndMillis,
                     result.occurringGroupResults
                 )
                 _state.value = _state.value.copy(
@@ -84,7 +86,7 @@ class SleepTrackingSessionController(
                 )
             }
             is AudioProcessingResult.Failed -> {
-                audioEventRecorder.onClassificationWindow(result.windowStartMillis, emptyList())
+                audioEventRecorder.onClassificationWindow(result.windowStartMillis, windowEndMillis, emptyList())
                 _state.value = _state.value.copy(
                     latestStatus = "Listening for sleep events...",
                     latestResults = emptyList()

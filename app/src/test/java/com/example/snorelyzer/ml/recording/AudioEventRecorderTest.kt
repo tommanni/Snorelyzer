@@ -14,6 +14,7 @@ class AudioEventRecorderTest {
         recorder.startSession(startedAtMillis = 0L)
         recorder.onClassificationWindow(
             windowStartMillis = 1_000L,
+            windowEndMillis = 11_000L,
             occurringGroups = emptyList()
         )
         recorder.stopSession(endedAtMillis = 30_000L)
@@ -30,21 +31,22 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 20_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 5_000L,
+            windowEndMillis = 15_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         assertTrue(recorder.shouldForceInference)
 
-        recorder.stopSession(endedAtMillis = 10_000L)
+        recorder.stopSession(endedAtMillis = 20_000L)
 
         val episode = recorder.completedEpisodeMetadata.single()
-        assertEquals(12_000L, episode.clipStartMillis)
-        assertEquals(17_000L, episode.clipEndMillis)
+        assertEquals(3_000L, episode.clipStartMillis)
+        assertEquals(19_000L, episode.clipEndMillis)
         assertEquals(setOf(RecordedEventGroup.Snoring), episode.groups)
         assertEquals("fake/session-1000-episode-1.wav", episode.filePath)
         assertEquals(1_000, episode.sampleRate)
-        assertEquals(5_000L, episode.durationMillis)
+        assertEquals(16_000L, episode.durationMillis)
         assertEquals(1, writer.requests.size)
-        assertEquals(5_000, writer.requests.single().samples.size)
+        assertEquals(16_000, writer.requests.single().samples.size)
     }
 
     @Test
@@ -52,24 +54,26 @@ class AudioEventRecorderTest {
         val recorder = testRecorder()
 
         recorder.startSession(startedAtMillis = 0L)
-        recorder.feedAudio(durationMillis = 20_000L)
+        recorder.feedAudio(durationMillis = 30_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Cough, 0.30f))
         )
         recorder.onClassificationWindow(
             windowStartMillis = 11_000L,
+            windowEndMillis = 21_000L,
             occurringGroups = emptyList()
         )
-        assertFalse(recorder.shouldForceInference)
+        assertTrue(recorder.shouldForceInference)
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
 
-        recorder.stopSession(endedAtMillis = 12_000L)
+        recorder.stopSession(endedAtMillis = 30_000L)
 
         val span = recorder.completedEpisodeMetadata.single().eventSpans.single()
         assertEquals(RecordedEventGroup.Cough, span.group)
         assertEquals(10_000L, span.startedAtMillis)
-        assertEquals(14_000L, span.endedAtMillis)
+        assertEquals(24_000L, span.endedAtMillis)
     }
 
     @Test
@@ -79,6 +83,7 @@ class AudioEventRecorderTest {
         recorder.startSession(startedAtMillis = 0L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Cough, 0.10f))
         )
         recorder.stopSession(endedAtMillis = 12_000L)
@@ -94,23 +99,27 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 40_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.onClassificationWindow(
             windowStartMillis = 29_000L,
+            windowEndMillis = 39_000L,
             occurringGroups = emptyList()
         )
-        assertFalse(recorder.shouldForceInference)
+        assertTrue(recorder.shouldForceInference)
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
 
         recorder.onClassificationWindow(
             windowStartMillis = 30_000L,
+            windowEndMillis = 40_000L,
             occurringGroups = emptyList()
         )
 
+        assertFalse(recorder.shouldForceInference)
         val episode = recorder.completedEpisodeMetadata.single()
-        assertEquals(17_000L, episode.clipStartMillis)
-        assertEquals(22_000L, episode.clipEndMillis)
+        assertEquals(8_000L, episode.clipStartMillis)
+        assertEquals(24_000L, episode.clipEndMillis)
     }
 
     @Test
@@ -121,16 +130,19 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 30_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.onClassificationWindow(
             windowStartMillis = 11_000L,
+            windowEndMillis = 21_000L,
             occurringGroups = emptyList()
         )
-        assertFalse(recorder.shouldForceInference)
+        assertTrue(recorder.shouldForceInference)
 
         recorder.onClassificationWindow(
             windowStartMillis = 20_000L,
+            windowEndMillis = 30_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Gasp, 0.40f))
         )
         assertTrue(recorder.shouldForceInference)
@@ -141,8 +153,8 @@ class AudioEventRecorderTest {
             setOf(RecordedEventGroup.Snoring, RecordedEventGroup.Gasp),
             episode.groups
         )
-        assertEquals(17_000L, episode.clipStartMillis)
-        assertEquals(23_000L, episode.clipEndMillis)
+        assertEquals(8_000L, episode.clipStartMillis)
+        assertEquals(30_000L, episode.clipEndMillis)
     }
 
     @Test
@@ -153,6 +165,7 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 20_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(
                 groupResult(RecordedEventGroup.Snoring, 0.35f),
                 groupResult(RecordedEventGroup.Gasp, 0.80f)
@@ -169,20 +182,21 @@ class AudioEventRecorderTest {
     }
 
     @Test
-    fun singlePositiveWindowUsesFiveSecondMinimumClipDuration() {
+    fun singlePositiveWindowIncludesEntireWindowAndPadding() {
         val recorder = testRecorder()
 
         recorder.startSession(startedAtMillis = 0L)
         recorder.feedAudio(durationMillis = 30_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.stopSession(endedAtMillis = 30_000L)
 
         val episode = recorder.completedEpisodeMetadata.single()
-        assertEquals(17_000L, episode.clipStartMillis)
-        assertEquals(22_000L, episode.clipEndMillis)
+        assertEquals(8_000L, episode.clipStartMillis)
+        assertEquals(24_000L, episode.clipEndMillis)
     }
 
     @Test
@@ -193,12 +207,13 @@ class AudioEventRecorderTest {
         recorder.feedAudio(startMillis = 0L, durationMillis = 19_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.stopSession(endedAtMillis = 19_000L)
 
         val episode = recorder.completedEpisodeMetadata.single()
-        assertEquals(17_000L, episode.clipStartMillis)
+        assertEquals(8_000L, episode.clipStartMillis)
         assertEquals(19_000L, episode.clipEndMillis)
     }
 
@@ -214,17 +229,19 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 50_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.onClassificationWindow(
             windowStartMillis = 30_000L,
+            windowEndMillis = 40_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.40f))
         )
         recorder.stopSession(endedAtMillis = 50_000L)
 
         val episode = recorder.completedEpisodeMetadata.single()
-        assertEquals(17_000L, episode.clipStartMillis)
-        assertEquals(25_000L, episode.clipEndMillis)
+        assertEquals(8_000L, episode.clipStartMillis)
+        assertEquals(16_000L, episode.clipEndMillis)
         assertEquals(8_000L, episode.durationMillis)
         assertEquals(1, writer.requests.size)
         assertEquals(8_000, writer.requests.single().samples.size)
@@ -236,12 +253,13 @@ class AudioEventRecorderTest {
         val recorder = testRecorder(writer = writer)
 
         recorder.startSession(startedAtMillis = 0L)
-        recorder.feedAudio(startMillis = 0L, durationMillis = 16_000L)
+        recorder.feedAudio(startMillis = 0L, durationMillis = 7_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
-        recorder.stopSession(endedAtMillis = 16_000L)
+        recorder.stopSession(endedAtMillis = 7_000L)
 
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
         assertTrue(writer.requests.isEmpty())
@@ -257,6 +275,7 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 30_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.stopSession(endedAtMillis = 30_000L)
@@ -275,6 +294,7 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 30_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.stopSession(endedAtMillis = 30_000L)
@@ -294,10 +314,12 @@ class AudioEventRecorderTest {
         recorder.feedAudio(durationMillis = 40_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
             occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
         )
         recorder.onClassificationWindow(
             windowStartMillis = 30_000L,
+            windowEndMillis = 40_000L,
             occurringGroups = emptyList()
         )
 
@@ -307,6 +329,88 @@ class AudioEventRecorderTest {
         assertEquals(listOf("fake/session-0-episode-1.wav"), writer.deletedClips)
         assertTrue(sink.completedSessions.isEmpty())
         assertEquals(listOf("session-0"), sink.discardedSessions)
+    }
+
+    @Test
+    fun quietSoundAtEndOfPositiveWindowIsRetainedWithTailPadding() {
+        val writer = FakeAudioClipWriter()
+        val recorder = testRecorder(writer = writer)
+        recorder.startSession(startedAtMillis = 0L)
+        val audio = FloatArray(40_000)
+        // A quiet snore at 29 seconds was outside the old 26-second clip end.
+        audio[29_000] = 0.01f
+        audio[33_000] = 0.005f
+        recorder.onAudioChunk(audio, chunkStartMillis = 0L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.onClassificationWindow(
+            windowStartMillis = 20_000L,
+            windowEndMillis = 30_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.26f))
+        )
+        recorder.stopSession(endedAtMillis = 40_000L)
+
+        val request = writer.requests.single()
+        assertEquals(28_000L, request.clipStartMillis)
+        assertEquals(34_000L, request.clipEndMillis)
+        assertEquals(0.01f, request.samples[1_000], 0f)
+        assertEquals(0.005f, request.samples[5_000], 0f)
+    }
+
+    @Test
+    fun trimsCoughBackgroundAndKeepsMetadataAlignedWithWrittenAudio() {
+        val writer = FakeAudioClipWriter()
+        val recorder = testRecorder(writer = writer)
+        recorder.startSession(startedAtMillis = 0L)
+        val audio = FloatArray(21_000) { if (it % 2 == 0) 0.0001f else -0.0001f }
+        for (index in 9_000 until 12_000) {
+            audio[index] = if (index % 2 == 0) 0.3f else -0.3f
+        }
+        recorder.onAudioChunk(audio, chunkStartMillis = 0L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 0L,
+            windowEndMillis = 10_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Cough, 0.8f))
+        )
+        recorder.onClassificationWindow(
+            windowStartMillis = 10_000L,
+            windowEndMillis = 20_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Cough, 0.8f))
+        )
+        recorder.stopSession(endedAtMillis = 21_000L)
+
+        val episode = recorder.completedEpisodeMetadata.single()
+        assertEquals(8_000L, episode.clipStartMillis)
+        assertEquals(13_000L, episode.clipEndMillis)
+        assertEquals(5_000L, episode.durationMillis)
+        assertEquals(5_000, writer.requests.single().samples.size)
+        assertEquals(8_000L, episode.eventSpans.single().startedAtMillis)
+        assertEquals(13_000L, episode.eventSpans.single().endedAtMillis)
+    }
+
+    @Test
+    fun startupWindowsUseActualEndTimeAndWaitForFullQuietTimeout() {
+        val recorder = testRecorder()
+        recorder.startSession(startedAtMillis = 0L)
+        recorder.feedAudio(durationMillis = 30_000L)
+        recorder.onClassificationWindow(
+            windowStartMillis = 0L,
+            windowEndMillis = 1_000L,
+            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+        )
+        recorder.onClassificationWindow(0L, 2_000L, emptyList())
+        assertTrue(recorder.shouldForceInference)
+        recorder.onClassificationWindow(10_000L, 20_000L, emptyList())
+        assertTrue(recorder.shouldForceInference)
+        recorder.onClassificationWindow(11_000L, 21_000L, emptyList())
+
+        assertFalse(recorder.shouldForceInference)
+        val episode = recorder.completedEpisodeMetadata.single()
+        assertEquals(0L, episode.clipStartMillis)
+        assertEquals(5_000L, episode.clipEndMillis)
     }
 
     private fun groupResult(

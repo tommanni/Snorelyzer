@@ -27,8 +27,8 @@ data class RecordedEventConfig(
     ),
     val postEventPadMillis: Long = 4_000L,
     val rollingBufferDurationMillis: Long = 330_000L,
-    val clipStartOffsetMillis: Long = 7_000L,
-    val clipEndOffsetMillis: Long = 6_000L,
+    val preEventPadMillis: Long = 2_000L,
+    val clipEdgePadMillis: Long = 1_000L,
     val minClipDurationMillis: Long = 5_000L,
     val episodeQuietTimeoutMillis: Long = 20_000L,
     val maxClipDurationMillis: Long = 5 * 60_000L,
@@ -86,6 +86,12 @@ class AudioEventRecorder(
         durationMillis = config.rollingBufferDurationMillis
     )
 
+    private val clipTrimmer = AudioClipTrimmer(
+        sampleRate = config.sampleRate,
+        edgePadMillis = config.clipEdgePadMillis,
+        minDurationMillis = config.minClipDurationMillis
+    )
+
     private var session: RecordingSessionMetadata? = null
     private var activeEpisode: ActiveEpisode? = null
     private var state: RecorderState = RecorderState.Idle
@@ -102,8 +108,9 @@ class AudioEventRecorder(
     val completedEpisodeMetadata: List<RecordingEpisodeMetadata>
         get() = completedEpisodes.toList()
 
+    // Keep classifying quiet continuations until the episode quiet timeout expires.
     val shouldForceInference: Boolean
-        get() = state == RecorderState.ActiveEvent
+        get() = activeEpisode != null
 
     fun startSession(startedAtMillis: Long) {
         reset()
@@ -122,8 +129,10 @@ class AudioEventRecorder(
 
     fun onClassificationWindow(
         windowStartMillis: Long,
+        windowEndMillis: Long,
         occurringGroups: List<RecordedEventGroupResult>
     ) {
+        require(windowEndMillis > windowStartMillis) { "Classification window must have positive duration." }
         val currentSession = session ?: return
         val hits = occurringGroups
             .filter { it.isOccurring }
@@ -135,13 +144,13 @@ class AudioEventRecorder(
                 episodeId = "${currentSession.sessionId}-episode-$nextEpisodeNumber",
                 sessionId = currentSession.sessionId,
                 firstPositiveWindowStartMillis = windowStartMillis,
-                lastPositiveWindowStartMillis = windowStartMillis
+                lastPositiveWindowEndMillis = windowEndMillis
             ).also {
                 activeEpisode = it
                 nextEpisodeNumber++
             }
 
-            episode.lastPositiveWindowStartMillis = windowStartMillis
+            episode.lastPositiveWindowEndMillis = windowEndMillis
             hits.forEach { (group, probability) ->
                 episode.groups += group
                 episode.peakProbabilities[group] = maxOf(
@@ -154,11 +163,11 @@ class AudioEventRecorder(
                     activeSpans[group] = ActiveSpan(
                         group = group,
                         startedAtMillis = windowStartMillis,
-                        lastPositiveWindowStartMillis = windowStartMillis,
+                        lastPositiveWindowEndMillis = windowEndMillis,
                         peakProbability = probability
                     )
                 } else {
-                    span.lastPositiveWindowStartMillis = windowStartMillis
+                    span.lastPositiveWindowEndMillis = windowEndMillis
                     span.peakProbability = maxOf(span.peakProbability, probability)
                 }
             }
@@ -167,7 +176,7 @@ class AudioEventRecorder(
         }
 
         closeDroppedSpans(hits.keys)
-        closeEpisodeIfQuiet(windowStartMillis)
+        closeEpisodeIfQuiet(windowEndMillis)
     }
 
     fun stopSession(endedAtMillis: Long) {
@@ -211,9 +220,9 @@ class AudioEventRecorder(
         }
     }
 
-    private fun closeEpisodeIfQuiet(windowStartMillis: Long) {
+    private fun closeEpisodeIfQuiet(windowEndMillis: Long) {
         val episode = activeEpisode ?: return
-        val quietForMillis = windowStartMillis - episode.lastPositiveWindowStartMillis
+        val quietForMillis = windowEndMillis - episode.lastPositiveWindowEndMillis
         if (quietForMillis >= config.episodeQuietTimeoutMillis && state != RecorderState.ActiveEvent) {
             closeActiveEpisode()
         }
@@ -227,20 +236,30 @@ class AudioEventRecorder(
         }
         activeSpans.clear()
 
-        val clipBoundary = calculateClipBoundary(episode) ?: run {
+        val bufferedBoundary = calculateClipBoundary(episode) ?: run {
             activeEpisode = null
             state = RecorderState.Idle
             session = session?.copy(completedEpisodeCount = completedEpisodes.size)
             return
         }
-        val samples = rollingBuffer.extract(
-            clipBoundary.startMillis,
-            clipBoundary.endMillis
+        val bufferedSamples = rollingBuffer.extract(
+            bufferedBoundary.startMillis,
+            bufferedBoundary.endMillis
         ) ?: run {
             activeEpisode = null
             state = RecorderState.Idle
             session = session?.copy(completedEpisodeCount = completedEpisodes.size)
             return
+        }
+        val bounds = clipTrimmer.findBounds(bufferedSamples)
+        val clipBoundary = ClipBoundary(
+            startMillis = bufferedBoundary.startMillis + bounds.startSample * 1_000L / config.sampleRate,
+            endMillis = bufferedBoundary.startMillis + bounds.endSampleExclusive * 1_000L / config.sampleRate
+        )
+        val samples = if (bounds.startSample == 0 && bounds.endSampleExclusive == bufferedSamples.size) {
+            bufferedSamples
+        } else {
+            bufferedSamples.copyOfRange(bounds.startSample, bounds.endSampleExclusive)
         }
         val writeResult = runCatching {
             clipWriter.writeClip(
@@ -266,7 +285,11 @@ class AudioEventRecorder(
             clipStartMillis = clipBoundary.startMillis,
             clipEndMillis = clipBoundary.endMillis,
             groups = episode.groups.toSet(),
-            eventSpans = episode.eventSpans.toList(),
+            eventSpans = episode.eventSpans.mapNotNull { span ->
+                val start = maxOf(span.startedAtMillis, clipBoundary.startMillis)
+                val end = minOf(span.endedAtMillis, clipBoundary.endMillis)
+                if (end > start) span.copy(startedAtMillis = start, endedAtMillis = end) else null
+            },
             peakProbabilities = episode.peakProbabilities.toMap(),
             sampleRate = writeResult.sampleRate,
             durationMillis = writeResult.durationMillis,
@@ -278,29 +301,20 @@ class AudioEventRecorder(
     }
 
     private fun calculateClipBoundary(episode: ActiveEpisode): ClipBoundary? {
-        // Discard first clipStartOffsetMillis of silent audio from the start
-        val rawClipStartMillis = episode.firstPositiveWindowStartMillis + config.clipStartOffsetMillis
+        // Classification identifies the whole window, not the position of the sound inside it.
+        val rawClipStartMillis = episode.firstPositiveWindowStartMillis - config.preEventPadMillis
         val rawClipEndMillis = maxOf(
-            episode.lastPositiveWindowStartMillis + config.clipEndOffsetMillis,
+            episode.lastPositiveWindowEndMillis + config.postEventPadMillis,
             rawClipStartMillis + config.minClipDurationMillis
         )
-        val cappedClipEndMillis = minOf(
-            rawClipEndMillis,
-            rawClipStartMillis + config.maxClipDurationMillis
-        )
-
         val availableStartMillis = rollingBuffer.availableStartMillis ?: return null
         val availableEndMillis = rollingBuffer.availableEndMillis ?: return null
-        
-        // Ensure we don't start the clip before the actual data starts
         val clipStartMillis = maxOf(rawClipStartMillis, availableStartMillis)
-        
-        // IMPORTANT: The clip must end AFTER the clip start
-        val maxPossibleEndMillis = minOf(cappedClipEndMillis, availableEndMillis)
-        val clipEndMillis = maxOf(clipStartMillis + config.minClipDurationMillis, maxPossibleEndMillis)
-        
-        // Ensure the end is still bounded by available audio
-        val finalClipEndMillis = minOf(clipEndMillis, availableEndMillis)
+        val finalClipEndMillis = minOf(
+            maxOf(rawClipEndMillis, clipStartMillis + config.minClipDurationMillis),
+            clipStartMillis + config.maxClipDurationMillis,
+            availableEndMillis
+        )
 
         return if (finalClipEndMillis > clipStartMillis) {
             ClipBoundary(clipStartMillis, finalClipEndMillis)
@@ -319,7 +333,7 @@ class AudioEventRecorder(
         val episodeId: String,
         val sessionId: String,
         val firstPositiveWindowStartMillis: Long,
-        var lastPositiveWindowStartMillis: Long,
+        var lastPositiveWindowEndMillis: Long,
         val groups: MutableSet<RecordedEventGroup> = mutableSetOf(),
         val eventSpans: MutableList<EventSpanMetadata> = mutableListOf(),
         val peakProbabilities: MutableMap<RecordedEventGroup, Float> = mutableMapOf()
@@ -333,14 +347,14 @@ class AudioEventRecorder(
     private data class ActiveSpan(
         val group: RecordedEventGroup,
         val startedAtMillis: Long,
-        var lastPositiveWindowStartMillis: Long,
+        var lastPositiveWindowEndMillis: Long,
         var peakProbability: Float
     ) {
         fun toMetadata(postEventPadMillis: Long): EventSpanMetadata {
             return EventSpanMetadata(
                 group = group,
                 startedAtMillis = startedAtMillis,
-                endedAtMillis = lastPositiveWindowStartMillis + postEventPadMillis,
+                endedAtMillis = lastPositiveWindowEndMillis + postEventPadMillis,
                 peakProbability = peakProbability
             )
         }

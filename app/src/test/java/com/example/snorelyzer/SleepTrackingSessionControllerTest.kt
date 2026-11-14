@@ -114,6 +114,33 @@ class SleepTrackingSessionControllerTest {
         assertFalse(controller.state.value.isRunning)
     }
 
+    @Test
+    fun negativeWindowKeepsInferenceForcedUntilQuietTimeout() {
+        val pipeline = FakeSleepAudioProcessor(
+            results = ArrayDeque(
+                listOf(
+                    AudioProcessingResult.Classified(
+                        windowStartMillis = 0L,
+                        gateDecision = gateDecision(shouldInfer = true),
+                        groupResults = listOf(snoringResult),
+                        occurringGroupResults = listOf(snoringResult)
+                    )
+                )
+            )
+        )
+        val controller = controller(pipeline = pipeline)
+        controller.startSession(startedAtMillis = 0L)
+        controller.onAudioChunk(chunk, chunkStartMillis = 0L)
+        for (second in 1..22) {
+            controller.onAudioChunk(chunk, chunkStartMillis = second * 1_000L)
+        }
+
+        assertFalse(pipeline.forceInferenceValues.first())
+        assertTrue(pipeline.forceInferenceValues.subList(1, 21).all { it })
+        assertFalse(pipeline.forceInferenceValues[21])
+        controller.stopSession(save = false, endedAtMillis = 23_000L)
+    }
+
     private fun controller(
         pipeline: FakeSleepAudioProcessor = FakeSleepAudioProcessor(),
         sink: FakeRecordingMetadataSink = FakeRecordingMetadataSink()
