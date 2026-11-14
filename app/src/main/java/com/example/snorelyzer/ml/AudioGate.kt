@@ -1,5 +1,6 @@
 package com.example.snorelyzer.ml
 
+import kotlin.math.exp
 import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.max
@@ -27,148 +28,192 @@ data class AudioGateDecision(
     val crestDelta: Float,
     val activityScore: Int,
     val isStableBackground: Boolean,
-    val reasons: List<String>
+    val reasons: List<String>,
+    val backgroundWindowSeconds: Float = 0f,
+    val negativeWindowCount: Int = 0,
+    val backgroundProtected: Boolean = false
 )
 
+/**
+ * Conservative inference scheduler for 32 kHz PCM, not a sleep-event classifier.
+ * Uses each chunk's lower-quintile frame energy, with 2s downward / 60s upward
+ * smoothing. Upward learning requires 20s acoustic stability and three independent
+ * negative classifier windows. Suspected events and recorder activity protect learning.
+ * Thresholds are initial tuning values; validate recall against continuous inference.
+ */
 class AudioGate {
     private val frameSize = 1024
     private val hopSize = 512
-    private val warmupChunks = 3
-    private val tailChunks = 2
     private val minRms = 1.0e-8f
-
-    private var chunkCount = 0
-    private var tailRemaining = 0
-    private var continuousActivityChunks = 0
+    private var elapsedSeconds = 0.0
+    private var lastInferenceSeconds = 0.0
+    private var tailSeconds = 0.0
+    private var protectedUntilSeconds = 0.0
     private var noiseFloorDb = Float.NaN
     private var backgroundZcr = Float.NaN
     private var backgroundCrestFactor = Float.NaN
+    private var previousFrameDb = Float.NaN
+    private data class BackgroundSample(
+        val quietDb: Float, val maxDb: Float, val zcr: Float, val seconds: Double
+    )
+    private val backgroundWindow = ArrayDeque<BackgroundSample>()
+    private var backgroundWindowSeconds = 0.0
+    private var negativeWindows = 0
+    private var lastNegativeEndMillis = Long.MIN_VALUE
 
     fun reset() {
-        chunkCount = 0
-        tailRemaining = 0
-        continuousActivityChunks = 0
+        elapsedSeconds = 0.0
+        lastInferenceSeconds = 0.0
+        tailSeconds = 0.0
+        protectedUntilSeconds = 0.0
         noiseFloorDb = Float.NaN
         backgroundZcr = Float.NaN
         backgroundCrestFactor = Float.NaN
+        previousFrameDb = Float.NaN
+        backgroundWindow.clear()
+        backgroundWindowSeconds = 0.0
+        negativeWindows = 0
+        lastNegativeEndMillis = Long.MIN_VALUE
     }
 
-    fun analyze(audioData: FloatArray): AudioGateDecision {
-        require(audioData.isNotEmpty()) { "Audio data must not be empty" }
+    /** Negative evidence is counted only for non-overlapping classifier windows. */
+    fun observeClassification(
+        windowStartMillis: Long,
+        windowEndMillis: Long,
+        hasTargetEvidence: Boolean,
+        confidentBackground: Boolean
+    ) {
+        require(windowEndMillis > windowStartMillis)
+        when {
+            hasTargetEvidence -> {
+                protectedUntilSeconds = elapsedSeconds + 10.0
+                negativeWindows = 0
+                lastNegativeEndMillis = windowEndMillis
+            }
+            !confidentBackground -> {
+                negativeWindows = 0
+                lastNegativeEndMillis = windowEndMillis
+            }
+            windowStartMillis >= lastNegativeEndMillis &&
+                windowEndMillis - windowStartMillis <= backgroundWindowSeconds * 1_000.0 -> {
+                negativeWindows = (negativeWindows + 1).coerceAtMost(3)
+                lastNegativeEndMillis = windowEndMillis
+            }
+        }
+    }
 
+    fun analyze(audioData: FloatArray, protectBackground: Boolean = false): AudioGateDecision {
+        require(audioData.size >= frameSize) { "At least $frameSize audio samples required" }
+        require(audioData.all { it.isFinite() }) { "Audio samples must be finite" }
+        val seconds = audioData.size / 32_000.0
         val features = extractFeatures(audioData)
         initializeBackgroundIfNeeded(features)
-
-        val relativeDb = features.rmsDb - noiseFloorDb
-        val maxFrameRelativeDb = features.maxFrameDb - noiseFloorDb
+        val floorBeforeUpdate = noiseFloorDb
+        val relativeDb = features.rmsDb - floorBeforeUpdate
+        val maxFrameRelativeDb = features.maxFrameDb - floorBeforeUpdate
         val zcrDelta = abs(features.zcr - backgroundZcr)
         val crestDelta = max(0.0f, features.crestFactor - backgroundCrestFactor)
         val activityScore = calculateActivityScore(
-            relativeDb = relativeDb,
-            maxFrameRelativeDb = maxFrameRelativeDb,
-            onsetDb = features.onsetDb,
-            crestDelta = crestDelta,
-            zcrDelta = zcrDelta
+            relativeDb, maxFrameRelativeDb, features.onsetDb, crestDelta, zcrDelta
         )
         val reasons = buildReasons(
-            relativeDb = relativeDb,
-            maxFrameRelativeDb = maxFrameRelativeDb,
-            onsetDb = features.onsetDb,
-            crestDelta = crestDelta,
-            zcrDelta = zcrDelta
+            relativeDb, maxFrameRelativeDb, features.onsetDb, crestDelta, zcrDelta
         )
+        // Shape changes alone are unreliable at the microphone's noise floor.
+        val activity = relativeDb >= 6f || maxFrameRelativeDb >= 10f ||
+            (activityScore >= 2 && maxFrameRelativeDb >= 3f)
+        val protected = protectBackground || elapsedSeconds < protectedUntilSeconds
+        val sustaining = tailSeconds > 0 && relativeDb >= 3f
+        val warmingUp = elapsedSeconds < 3.0
+        elapsedSeconds += seconds
 
-        val hasStrongActivity = hasStrongActivity(
-            relativeDb = relativeDb,
-            maxFrameRelativeDb = maxFrameRelativeDb,
-            crestDelta = crestDelta,
-            zcrDelta = zcrDelta
-        )
-        val isStableBackground = !hasStrongActivity && activityScore < 4
+        // Within-chunk onsets are common in real background audio. Judge its
+        // distribution across 20 seconds instead of demanding 20 flawless chunks.
+        val previousQuiet = backgroundWindow.map { it.quietDb }.sorted()
+        val previousMax = backgroundWindow.map { it.maxDb }.sorted()
+        val previousZcr = backgroundWindow.map { it.zcr }.sorted()
+        val changed = previousQuiet.isNotEmpty() && (
+            abs(features.quietFrameDb - previousQuiet[previousQuiet.size / 2]) > 6f ||
+                features.maxFrameDb - previousMax[previousMax.size / 2] > 6f ||
+                abs(features.zcr - previousZcr[previousZcr.size / 2]) > 0.03f
+            )
+        if (changed) {
+            backgroundWindow.clear()
+            backgroundWindowSeconds = 0.0
+            negativeWindows = 0
+            // Do not count a classifier window containing the previous environment.
+            lastNegativeEndMillis = Long.MIN_VALUE
+        }
+        backgroundWindow.addLast(BackgroundSample(
+            features.quietFrameDb, features.maxFrameDb, features.zcr, seconds
+        ))
+        backgroundWindowSeconds += seconds
+        while (backgroundWindow.size > 1 &&
+            backgroundWindowSeconds - backgroundWindow.first().seconds >= 20.0) {
+            backgroundWindowSeconds -= backgroundWindow.removeFirst().seconds
+        }
+        val quietLevels = backgroundWindow.map { it.quietDb }.sorted()
+        val zcrLevels = backgroundWindow.map { it.zcr }.sorted()
+        val low = quietLevels.size / 10
+        val high = (quietLevels.size - 1) * 9 / 10
+        val stable = backgroundWindowSeconds >= 20.0 &&
+            quietLevels[high] - quietLevels[low] <= 6f &&
+            zcrLevels[high] - zcrLevels[low] <= 0.02f
 
-        val isWarmingUp = chunkCount < warmupChunks
-        var shouldInfer: Boolean
-        var state: AudioGateState
-        var triggerType: String
-
+        // Zero input/clipping are capture-quality problems, never background training data.
+        val validBackground = features.rmsDb > -100f && features.peak < 0.999f
+        val backgroundAccepted = validBackground && stable &&
+            negativeWindows >= 3 && !protected
+        val active = ((activity || sustaining) && !backgroundAccepted) || protected
+        val state: AudioGateState
+        val trigger: String
         when {
-            isWarmingUp -> {
-                shouldInfer = false
+            warmingUp -> {
                 state = AudioGateState.WarmingUp
-                triggerType = "warmup"
-                continuousActivityChunks = 0
-                updateBackground(features, upwardAlpha = 0.20f, downwardAlpha = 0.35f)
+                trigger = "warmup"
             }
-            !isStableBackground -> {
-                shouldInfer = true
+            active -> {
                 state = AudioGateState.Candidate
-                triggerType = "activity"
-                tailRemaining = tailChunks
-                continuousActivityChunks++
-                updateBackground(features, upwardAlpha = 0.005f, downwardAlpha = 0.05f)
+                trigger = "activity"
+                tailSeconds = 2.0
             }
-            tailRemaining > 0 -> {
-                shouldInfer = true
+            tailSeconds > 0 -> {
                 state = AudioGateState.Tail
-                triggerType = "tail"
-                tailRemaining--
-                continuousActivityChunks++
-                updateBackground(features, upwardAlpha = 0.005f, downwardAlpha = 0.05f)
+                trigger = "tail"
+                tailSeconds = (tailSeconds - seconds).coerceAtLeast(0.0)
             }
             else -> {
-                shouldInfer = false
                 state = AudioGateState.Background
-                triggerType = "stableBackground"
-                continuousActivityChunks = 0
-                updateBackground(features, upwardAlpha = 0.05f, downwardAlpha = 0.02f)
+                trigger = "stableBackground"
             }
         }
-        
-        if (continuousActivityChunks > 10) {
-            shouldInfer = false
-            state = AudioGateState.Background
-            triggerType = "timeoutReset"
-            continuousActivityChunks = 0
-            tailRemaining = 0
-            
-            // Hard snap the baseline to the current environment
-            noiseFloorDb = features.rmsDb
-            backgroundZcr = features.zcr
-            backgroundCrestFactor = features.crestFactor
+        val probe = elapsedSeconds - lastInferenceSeconds >= 5.0
+        val shouldInfer = state != AudioGateState.Background || probe
+        if (shouldInfer) lastInferenceSeconds = elapsedSeconds
+
+        if (validBackground && !protected) {
+            // Quieter frames may lower the floor even during an event; never raise it there.
+            if (features.quietFrameDb < noiseFloorDb) {
+                noiseFloorDb = smooth(noiseFloorDb, features.quietFrameDb, seconds, 2.0)
+            } else if (backgroundAccepted && state == AudioGateState.Background) {
+                noiseFloorDb = smooth(noiseFloorDb, features.quietFrameDb, seconds, 60.0)
+            }
+            if (backgroundAccepted && state == AudioGateState.Background) {
+                backgroundZcr = smooth(backgroundZcr, features.zcr, seconds, 60.0)
+                backgroundCrestFactor = smooth(backgroundCrestFactor, features.crestFactor, seconds, 60.0)
+            }
         }
-
-        chunkCount++
-
         return AudioGateDecision(
-            shouldInfer = shouldInfer,
-            state = state,
-            triggerType = triggerType,
-            noiseFloorDb = noiseFloorDb,
-            rmsDb = features.rmsDb,
-            relativeDb = relativeDb,
-            maxFrameRelativeDb = maxFrameRelativeDb,
-            onsetDb = features.onsetDb,
-            zcr = features.zcr,
-            zcrDelta = zcrDelta,
-            crestFactor = features.crestFactor,
-            crestDelta = crestDelta,
-            activityScore = activityScore,
-            isStableBackground = isStableBackground,
-            reasons = reasons
+            shouldInfer, state, if (probe && state == AudioGateState.Background) "probe" else trigger,
+            floorBeforeUpdate, features.rmsDb, relativeDb, maxFrameRelativeDb,
+            features.onsetDb, features.zcr, zcrDelta, features.crestFactor, crestDelta,
+            activityScore, (!activity || backgroundAccepted) && !protected, reasons,
+            backgroundWindowSeconds.toFloat(), negativeWindows, protected
         )
     }
 
-    private fun hasStrongActivity(
-        relativeDb: Float,
-        maxFrameRelativeDb: Float,
-        crestDelta: Float,
-        zcrDelta: Float
-    ): Boolean {
-        return relativeDb >= 10.0f ||
-            maxFrameRelativeDb >= 20.0f ||
-            crestDelta >= 3.0f ||
-            zcrDelta >= 0.045f
-    }
+    private fun smooth(current: Float, target: Float, seconds: Double, tau: Double): Float =
+        lerp(current, target, (1.0 - exp(-seconds / tau)).toFloat())
 
     private fun extractFeatures(audioData: FloatArray): GateFeatures {
         var totalSquare = 0.0
@@ -185,7 +230,7 @@ class AudioGate {
             previousSample = sample
         }
 
-        var previousFrameDb = Float.NaN
+        val frameLevels = mutableListOf<Float>()
         var onsetDb = 0.0f
         var maxFrameDb = -160.0f
         var offset = 0
@@ -197,6 +242,7 @@ class AudioGate {
 
             val frameRms = sqrt(frameSquare / frameSize).toFloat()
             val frameDb = toDb(frameRms)
+            frameLevels += frameDb
             maxFrameDb = max(maxFrameDb, frameDb)
             if (!previousFrameDb.isNaN()) {
                 onsetDb = max(onsetDb, frameDb - previousFrameDb)
@@ -210,6 +256,8 @@ class AudioGate {
 
         return GateFeatures(
             rmsDb = toDb(safeRms),
+            quietFrameDb = frameLevels.sorted()[frameLevels.size / 5],
+            peak = peak,
             maxFrameDb = maxFrameDb,
             onsetDb = onsetDb,
             zcr = zeroCrossings.toFloat() / audioData.size,
@@ -219,17 +267,10 @@ class AudioGate {
 
     private fun initializeBackgroundIfNeeded(features: GateFeatures) {
         if (noiseFloorDb.isNaN()) {
-            noiseFloorDb = features.rmsDb
+            noiseFloorDb = features.quietFrameDb.coerceAtLeast(-90f)
             backgroundZcr = features.zcr
             backgroundCrestFactor = features.crestFactor
         }
-    }
-
-    private fun updateBackground(features: GateFeatures, upwardAlpha: Float, downwardAlpha: Float) {
-        val floorAlpha = if (features.rmsDb > noiseFloorDb) upwardAlpha else downwardAlpha
-        noiseFloorDb = lerp(noiseFloorDb, features.rmsDb, floorAlpha)
-        backgroundZcr = lerp(backgroundZcr, features.zcr, 0.05f)
-        backgroundCrestFactor = lerp(backgroundCrestFactor, features.crestFactor, 0.05f)
     }
 
     private fun buildReasons(
@@ -240,8 +281,8 @@ class AudioGate {
         zcrDelta: Float
     ): List<String> {
         val reasons = mutableListOf<String>()
-        if (relativeDb >= 8.5f) reasons += "energy"
-        if (maxFrameRelativeDb >= 16.0f) reasons += "frameEnergy"
+        if (relativeDb >= 6.0f) reasons += "energy"
+        if (maxFrameRelativeDb >= 10.0f) reasons += "frameEnergy"
         if (onsetDb >= 12.0f) reasons += "onset"
         if (crestDelta >= 1.5f) reasons += "crest"
         if (zcrDelta >= 0.030f) reasons += "zcr"
@@ -279,6 +320,8 @@ class AudioGate {
 
     private data class GateFeatures(
         val rmsDb: Float,
+        val quietFrameDb: Float,
+        val peak: Float,
         val maxFrameDb: Float,
         val onsetDb: Float,
         val zcr: Float,

@@ -105,6 +105,39 @@ class AudioProcessingPipelineTest {
         assertEquals(classified.groupResults, classified.occurringGroupResults)
     }
 
+    @Test
+    fun positiveClassifierFeedbackKeepsStartupSnoringEligible() {
+        val pipeline = pipeline(classifier = FakeRelevantSleepClassifier(
+            results = listOf(ClassificationResult(index = 43, probability = 0.9f))
+        ))
+        repeat(30) { second ->
+            val result = pipeline.processChunk(sineChunk(0.1f), second * 1_000L, false)
+            assertTrue(result.toString(), result is AudioProcessingResult.Classified)
+        }
+    }
+
+    @Test
+    fun fluctuatingBackgroundWithLowTargetScoresEventuallyUsesProbes() {
+        val pipeline = pipeline(classifier = FakeRelevantSleepClassifier(
+            results = listOf(ClassificationResult(index = 0, probability = 0.032f))
+        ))
+        val results = List(100) { second ->
+            val scale = listOf(0.85f, 1.1f, 1f, 0.95f)[second % 4]
+            val chunk = FloatArray(chunkSize) { index ->
+                val amplitude = if (index < 12_000) 0.003f else 0.02f
+                scale * amplitude * sin(2.0 * PI * 80.0 * index / 32_000.0).toFloat()
+            }
+            pipeline.processChunk(chunk, second * 1_000L, false)
+        }
+        assertTrue(results.any { it.gateDecision.onsetDb > 6f })
+        assertTrue(results.takeLast(20).count { it is AudioProcessingResult.Skipped } >= 12)
+        assertTrue(results.takeLast(20).any { it.gateDecision.triggerType == "probe" })
+        // Acceptance of a fluctuating environment must not suppress a new loud event.
+        val burst = pipeline.processChunk(sineChunk(0.2f), 100_000L, false)
+        assertTrue(burst is AudioProcessingResult.Classified)
+        assertEquals("activity", burst.gateDecision.triggerType)
+    }
+
     private fun pipeline(
         processor: FakeMelSpectrogramProcessor = FakeMelSpectrogramProcessor(),
         classifier: FakeRelevantSleepClassifier = FakeRelevantSleepClassifier()

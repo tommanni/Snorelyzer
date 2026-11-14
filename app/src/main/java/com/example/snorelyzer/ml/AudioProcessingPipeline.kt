@@ -91,7 +91,7 @@ class AudioProcessingPipeline(
 
         val windowEndMillis = chunkStartMillis + samplesToMillis(chunk.size)
         val windowStartMillis = windowEndMillis - samplesToMillis(validSamples)
-        val gateDecision = audioGate.analyze(chunk)
+        val gateDecision = audioGate.analyze(chunk, protectBackground = forceInference)
         val shouldInfer = gateDecision.shouldInfer || forceInference
         logGateDecision(gateDecision, forceInference)
 
@@ -126,6 +126,15 @@ class AudioProcessingPipeline(
                 relevantResults,
                 recordedEventConfig
             )
+            // Protect below the recording threshold too. These sigmoid scores are
+            // uncalibrated: a low target score alone is not proof of background.
+            audioGate.observeClassification(
+                windowStartMillis = windowStartMillis,
+                windowEndMillis = windowEndMillis,
+                hasTargetEvidence = groupResults.any { it.probability >= it.threshold * 0.5f },
+                confidentBackground = groupResults.isNotEmpty() &&
+                    groupResults.all { it.probability < it.threshold * 0.25f }
+            )
             val t2 = System.nanoTime()
             logClassificationTiming(t0, t1, t2)
             logClassificationResults(start, groupResults)
@@ -136,6 +145,8 @@ class AudioProcessingPipeline(
                 occurringGroupResults = groupResults.filter { it.isOccurring }
             )
         }.getOrElse { error ->
+            audioGate.observeClassification(windowStartMillis, windowEndMillis,
+                hasTargetEvidence = false, confidentBackground = false)
             logError("SleepTracker", "Processing failed", error)
             AudioProcessingResult.Failed(
                 windowStartMillis = windowStartMillis,
@@ -166,7 +177,10 @@ class AudioProcessingPipeline(
                 "crestDelta=${"%.2f".format(gateDecision.crestDelta)} " +
                 "activityScore=${gateDecision.activityScore} " +
                 "stable=${gateDecision.isStableBackground} " +
-                "reasons=${gateDecision.reasons.joinToString("|")}"
+                "reasons=${gateDecision.reasons.joinToString("|")} " +
+                "backgroundWindowSeconds=${gateDecision.backgroundWindowSeconds} " +
+                "negativeWindows=${gateDecision.negativeWindowCount} " +
+                "protected=${gateDecision.backgroundProtected}"
         )
     }
 

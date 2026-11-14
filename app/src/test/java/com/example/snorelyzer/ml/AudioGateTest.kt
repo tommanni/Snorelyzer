@@ -15,7 +15,7 @@ class AudioGateTest {
     fun steadyBackgroundClosesAfterWarmup() {
         val gate = AudioGate()
 
-        val decisions = List(8) {
+        val decisions = List(9) {
             gate.analyze(sineChunk(amplitude = 0.02f, frequencyHz = 120.0f))
         }
 
@@ -88,7 +88,7 @@ class AudioGateTest {
     fun strongRelativeEnergyInfers() {
         val gate = primedGate()
 
-        val event = sineChunk(amplitude = amplitudeForRelativeDb(0.02f, 3.2f), frequencyHz = 120.0f)
+        val event = sineChunk(amplitude = amplitudeForRelativeDb(0.02f, 10.5f), frequencyHz = 120.0f)
 
         val decision = gate.analyze(event)
 
@@ -112,12 +112,12 @@ class AudioGateTest {
     }
 
     @Test
-    fun combinedMediumCuesInfer() {
+    fun transientWithSupportingShapeCuesInfers() {
         val gate = primedGate()
 
         val event = sineChunk(amplitude = amplitudeForRelativeDb(0.02f, 1.4f), frequencyHz = 120.0f)
         for (i in 12_000 until 12_700) {
-            event[i] += 0.05f * sin(2.0 * PI * 1000.0 * i / 32_000.0).toFloat()
+            event[i] += 0.08f * sin(2.0 * PI * 1000.0 * i / 32_000.0).toFloat()
         }
 
         val decision = gate.analyze(event)
@@ -132,7 +132,7 @@ class AudioGateTest {
 
         assertTrue(
             gate.analyze(
-                sineChunk(amplitude = amplitudeForRelativeDb(0.02f, 3.2f), frequencyHz = 120.0f)
+                sineChunk(amplitude = amplitudeForRelativeDb(0.02f, 10.5f), frequencyHz = 120.0f)
             ).shouldInfer
         )
         assertTrue(gate.analyze(sineChunk(amplitude = 0.02f, frequencyHz = 120.0f)).shouldInfer)
@@ -144,10 +144,95 @@ class AudioGateTest {
     fun repeatedStableChunksStayClosed() {
         val gate = primedGate()
 
-        repeat(10) {
+        repeat(4) {
             val decision = gate.analyze(sineChunk(amplitude = 0.02f, frequencyHz = 120.0f))
             assertFalse(decision.shouldInfer)
             assertTrue(decision.isStableBackground)
+        }
+    }
+
+    @Test
+    fun sustainedActivityNeverBecomesBackgroundWithoutClassifierEvidence() {
+        val gate = primedGate()
+        val event = sineChunk(0.15f, 120f)
+        val floor = gate.analyze(event).noiseFloorDb
+        repeat(180) {
+            val decision = gate.analyze(event)
+            assertTrue(decision.toString(), decision.shouldInfer)
+            assertEquals(floor, decision.noiseFloorDb, 0.01f)
+        }
+    }
+
+    @Test
+    fun closedGatePeriodicallyProbes() {
+        val gate = primedGate()
+        val decisions = List(15) { gate.analyze(sineChunk(0.02f, 120f)) }
+        assertTrue(decisions.any { it.triggerType == "probe" && it.shouldInfer })
+        assertTrue(decisions.any { !it.shouldInfer })
+    }
+
+    @Test
+    fun forcedRecorderActivityCannotRaiseBackground() {
+        val gate = primedGate()
+        val floor = gate.analyze(sineChunk(0.02f, 120f)).noiseFloorDb
+        repeat(90) {
+            val decision = gate.analyze(sineChunk(0.15f, 120f), protectBackground = true)
+            assertTrue(decision.shouldInfer)
+            assertEquals(floor, decision.noiseFloorDb, 0.01f)
+        }
+    }
+
+    @Test
+    fun stableNewBackgroundRequiresIndependentNegativeWindows() {
+        val gate = primedGate()
+        val loud = sineChunk(0.15f, 120f)
+        repeat(40) {
+            gate.analyze(loud)
+            // Every result describes the SAME ten-second interval.
+            gate.observeClassification(0, 10_000, false, true)
+        }
+        assertTrue(gate.analyze(loud).shouldInfer)
+        gate.observeClassification(10_000, 20_000, false, true)
+        gate.observeClassification(20_000, 30_000, false, true)
+        val decisions = List(10) { gate.analyze(loud) }
+        assertTrue(decisions.any { !it.shouldInfer })
+        assertTrue(decisions.last().noiseFloorDb > decisions.first().noiseFloorDb)
+        assertTrue(decisions.last().noiseFloorDb < decisions.first().noiseFloorDb + 4f)
+    }
+
+    @Test
+    fun positiveClassificationProtectsSnoringPresentAtStartup() {
+        val gate = AudioGate()
+        repeat(90) { second ->
+            val decision = gate.analyze(sineChunk(0.1f, 120f))
+            assertTrue(decision.toString(), decision.shouldInfer)
+            gate.observeClassification(second * 1000L, (second + 1) * 1000L, true, false)
+        }
+    }
+
+    @Test
+    fun dropoutDoesNotLowerLearnedFloorAndResetRestartsWarmup() {
+        val gate = primedGate()
+        val floor = gate.analyze(sineChunk(0.02f, 120f)).noiseFloorDb
+        repeat(20) { assertEquals(floor, gate.analyze(FloatArray(chunkSize)).noiseFloorDb, 0.01f) }
+        gate.reset()
+        assertEquals(AudioGateState.WarmingUp, gate.analyze(FloatArray(chunkSize)).state)
+    }
+
+    @Test
+    fun quieterEnvironmentLowersFloorQuickly() {
+        val gate = primedGate()
+        val decisions = List(8) { gate.analyze(sineChunk(0.002f, 120f)) }
+        assertTrue(decisions.last().noiseFloorDb < decisions.first().noiseFloorDb - 15f)
+    }
+
+    @Test
+    fun uncertainOrFailedClassificationCannotAuthorizeNewBackground() {
+        val gate = primedGate()
+        repeat(90) { second ->
+            val decision = gate.analyze(sineChunk(0.15f, 120f))
+            assertTrue(decision.shouldInfer)
+            gate.observeClassification(second * 1000L, (second + 1) * 1000L, false, false)
         }
     }
 
