@@ -1,47 +1,37 @@
 # Snorelyzer
 
-**Snorelyzer** is an AI-powered Android sleep audio tracker that detects, classifies, and records sleep sound events (snoring, coughing, gasping, sleep talking) completely on-device.
+**Snorelyzer** is a PoC Android app that listens for sleep audio events, such as snoring, coughing, gasping, and sleep talking, saves relevant audio clips, and helps users explore patterns across nights. Sound detection runs entirely on the device, with recordings and history stored locally.
 
----
+## What it does
 
-## ✨ Features
+- Tracks sleep sounds in the background, with hold-to-stop controls.
+- Automatically groups detected sounds into playable audio episodes.
+- Organizes recordings by night and session, with analytics for reviewing patterns over time.
 
-- **On-Device AI Classification**: Real-time sleep sound identification using LiteRT (TensorFlow Lite).
-- **Intelligent Audio Gating**: Analyzes audio signals to run ML inference efficiently and save battery.
-- **Episode Audio Clip Recording**: Automatically records and trims WAV audio clips for detected sleep events.
-- **Background Tracking**: Reliable foreground service execution with hold-to-stop tracking safety controls.
-- **Sleep Insights & Persistence**: Stores sessions, episodes, and event timelines locally using Room DB.
+## Under the hood
 
----
-
-## 🛠️ Tech Stack
-
-- **Language**: Kotlin
-- **UI**: Jetpack Compose (Material 3), Navigation Compose
-- **Machine Learning & DSP**: LiteRT (TensorFlow Lite), JTransforms FFT (Mel Spectrograms)
-- **Dependency Injection**: Koin
-- **Database**: Room DB
-- **Asynchrony**: Coroutines & StateFlow
-- **Background Execution**: Android Foreground Service (`AudioRecord`)
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Android Studio
-- JDK 11+
-- Android Device or Emulator with microphone input (API 26+)
-
-### Build & Run
-1. Open the project in Android Studio.
-2. Build and run on a physical device or emulator.
-
----
-
-## 🧪 Testing
-
-Run all unit tests:
-```bash
-./gradlew testDebugUnitTest
+```text
+Microphone → Adaptive audio gate → On-device ML → Recorded episodes → Playback & analytics
 ```
+
+- **Custom audio processing:** Processes 32 kHz audio in a ten-second sliding window. FFT and Mel spectrogram preprocessing converts sound into model input, reusing buffers and previously computed frames.
+- **Adaptive detection:** Uses changes in sound energy and background noise to schedule inference. Periodic checks and classifier feedback help protect quiet or ongoing events from being treated as background.
+- **Event-based recording:** A rolling buffer preserves audio from before a detection. The recorder groups sounds, trims outer background audio, and writes WAV clips with aligned event timestamps.
+- **Structured persistence:** Room relates sessions, episodes, sound groups, and event spans. Nights are derived from session dates, keeping overnight recordings together.
+- **Separated responsibilities:** A foreground service captures audio; a session controller coordinates processing, saving, discarding, and cleanup. Compose screens observe ViewModel state through a unidirectional flow, with type-safe navigation and Koin dependency injection.
+
+## Tech stack
+
+**Kotlin · Jetpack Compose · Material 3 · Coroutines & StateFlow · Koin · Room/KSP · Google LiteRT · JTransforms · Media3**
+
+## Build & test
+
+Open in Android Studio with **JDK 21** and **Android SDK 36.1**. Run on an Android device or emulator with microphone input (**API 26+**). Model assets are included in the repository.
+
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+./gradlew :app:connectedDebugAndroidTest # Requires a connected device or emulator
+```
+
+Tests cover audio gating and processing, recording and trimming, session lifecycle, analytics, ViewModels, Room persistence, and Compose navigation.
