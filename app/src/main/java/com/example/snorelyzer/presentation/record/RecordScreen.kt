@@ -33,6 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -127,18 +130,11 @@ fun RecordScreen(
                 DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                     .format(Date(interruptedAtMillis))
             }
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer
-            ) {
-                Text(
-                    text = stringResource(R.string.record_interrupted_at, interruptedAt),
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+            RecordingWarning(stringResource(R.string.record_interrupted_at, interruptedAt))
+        }
+
+        if (state.hasSaveFailure) {
+            RecordingWarning(stringResource(R.string.record_save_failed))
         }
 
         Surface(
@@ -203,6 +199,24 @@ fun RecordScreen(
 }
 
 @Composable
+internal fun RecordingWarning(text: String) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(16.dp),
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+@Composable
 private fun RecordingSetupTip(
     icon: ImageVector,
     text: String,
@@ -234,7 +248,7 @@ private fun RecordScreenDarkPreview() {
     SnorelyzerTheme(darkTheme = true) {
         Surface {
             RecordScreen(
-                state = RecordState(isServiceRunning = false),
+                state = RecordState(hasSaveFailure = true),
                 onAction = {}
             )
         }
@@ -247,7 +261,10 @@ private fun RecordScreenLightPreview() {
     SnorelyzerTheme(darkTheme = false) {
         Surface {
             RecordScreen(
-                state = RecordState(interruptedAtMillis = System.currentTimeMillis()),
+                state = RecordState(
+                    interruptedAtMillis = System.currentTimeMillis(),
+                    hasSaveFailure = true
+                ),
                 onAction = {}
             )
         }

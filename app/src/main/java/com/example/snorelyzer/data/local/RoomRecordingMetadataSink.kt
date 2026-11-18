@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingMetadataSink
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -18,35 +19,45 @@ class RoomRecordingMetadataSink(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val persistenceMutex = Mutex()
 
-    override fun onSessionStarted(session: RecordingSessionMetadata) {
-        persist("Failed to persist recording session start") {
+    override fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
+        persist("Failed to save start of ${session.sessionId}", onFailure) {
             localDataSource.upsertSession(session)
         }
     }
 
-    override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) {
-        persist("Failed to persist recording episode") {
+    override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata, onFailure: () -> Unit) {
+        persist("Failed to save metadata for ${episode.episodeId}", onFailure) {
             localDataSource.insertEpisode(episode)
         }
     }
 
-    override fun onSessionCompleted(session: RecordingSessionMetadata) {
-        persist("Failed to persist recording session completion") {
+    override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
+        persist("Failed to save completion of ${session.sessionId}", onFailure) {
             localDataSource.completeSession(session)
         }
     }
 
     override fun onSessionDiscarded(sessionId: String) {
-        persist("Failed to discard recording session") {
+        persist("Failed to discard $sessionId", onFailure = {}) {
             localDataSource.deleteSession(sessionId)
         }
     }
 
-    private fun persist(errorMessage: String, block: suspend () -> Unit) {
+    private fun persist(
+        errorMessage: String,
+        onFailure: () -> Unit,
+        block: suspend () -> Unit
+    ) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             persistenceMutex.withLock {
-                runCatching { block() }
-                    .onFailure { Log.e(TAG, errorMessage, it) }
+                try {
+                    block()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    runCatching { Log.e(TAG, errorMessage, error) }
+                    onFailure()
+                }
             }
         }
     }

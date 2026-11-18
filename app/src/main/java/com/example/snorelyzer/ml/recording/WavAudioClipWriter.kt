@@ -5,6 +5,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import kotlin.math.roundToInt
 
 internal class WavAudioClipWriter internal constructor(
@@ -15,8 +17,14 @@ internal class WavAudioClipWriter internal constructor(
     override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult {
         recordingsDir.mkdirs()
         val file = File(recordingsDir, request.fileName())
-        FileOutputStream(file).use { output ->
-            writeWav(output, request.samples, request.sampleRate)
+        val temporaryFile = File.createTempFile("clip-", ".tmp", recordingsDir)
+        try {
+            FileOutputStream(temporaryFile).use { output ->
+                writeWav(output, request.samples, request.sampleRate)
+            }
+            Files.move(temporaryFile.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            temporaryFile.delete()
         }
         return AudioClipWriteResult(
             filePath = file.absolutePath,
@@ -62,12 +70,16 @@ internal class WavAudioClipWriter internal constructor(
 
         output.write(header)
 
-        val sampleBytes = ByteBuffer.allocate(dataSize)
+        val sampleBytes = ByteBuffer.allocate(PCM_BUFFER_BYTES)
             .order(ByteOrder.LITTLE_ENDIAN)
         samples.forEach { sample ->
             sampleBytes.putShort(sample.toPcm16())
+            if (!sampleBytes.hasRemaining()) {
+                output.write(sampleBytes.array())
+                sampleBytes.clear()
+            }
         }
-        output.write(sampleBytes.array())
+        output.write(sampleBytes.array(), 0, sampleBytes.position())
     }
 
     private fun AudioClipWriteRequest.fileName(): String {
@@ -88,6 +100,7 @@ internal class WavAudioClipWriter internal constructor(
         const val RECORDINGS_DIR = "recordings"
         const val CHANNEL_COUNT = 1
         const val BITS_PER_SAMPLE = 16
+        const val PCM_BUFFER_BYTES = 16 * 1024
         const val BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8
         const val WAV_HEADER_BYTES = 44
     }

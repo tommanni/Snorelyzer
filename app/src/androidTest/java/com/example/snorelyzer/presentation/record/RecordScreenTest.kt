@@ -32,6 +32,20 @@ class RecordScreenTest {
     }
 
     @Test
+    fun stoppedSessionShowsSaveFailureWarning() {
+        composeRule.setContent {
+            SnorelyzerTheme {
+                RecordScreen(
+                    state = RecordState(hasSaveFailure = true),
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Some recordings couldn’t be saved.").assertIsDisplayed()
+    }
+
+    @Test
     fun startTrackingButtonDispatchesStartAction() {
         val actions = mutableListOf<RecordAction>()
 

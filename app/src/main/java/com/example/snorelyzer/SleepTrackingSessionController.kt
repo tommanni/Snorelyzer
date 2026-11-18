@@ -7,6 +7,7 @@ import com.example.snorelyzer.ml.recording.displayLabel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 data class DetectedClassUi(
     val label: String,
@@ -19,7 +20,8 @@ data class SleepTrackingSessionState(
     val isRunning: Boolean = false,
     val sessionStartedAtMillis: Long? = null,
     val isReconnecting: Boolean = false,
-    val interruptedAtMillis: Long? = null
+    val interruptedAtMillis: Long? = null,
+    val hasSaveFailure: Boolean = false
 )
 
 interface SleepTrackingSessionStateSource {
@@ -37,18 +39,27 @@ class SleepTrackingSessionController(
     override val state = _state.asStateFlow()
 
     private var audioProcessingPipeline: SleepAudioProcessor? = null
+    private val saveStatusLock = Any()
+    private var saveStatusSession: Any? = null
 
     fun startSession(startedAtMillis: Long) {
         stopCurrentPipeline()
-        audioEventRecorder.reset()
-        audioEventRecorder.startSession(startedAtMillis)
         audioProcessingPipeline = audioProcessingPipelineFactory().also { it.reset() }
-        _state.value = SleepTrackingSessionState(
-            latestStatus = "Waiting for audio...",
-            latestResults = emptyList(),
-            isRunning = true,
-            sessionStartedAtMillis = startedAtMillis
-        )
+        val saveStatus = Any()
+        synchronized(saveStatusLock) {
+            saveStatusSession = saveStatus
+            _state.value = SleepTrackingSessionState(
+                isRunning = true,
+                sessionStartedAtMillis = startedAtMillis
+            )
+        }
+        audioEventRecorder.startSession(startedAtMillis) {
+            synchronized(saveStatusLock) {
+                if (saveStatusSession === saveStatus) {
+                    _state.update { it.copy(hasSaveFailure = true) }
+                }
+            }
+        }
     }
 
     fun onAudioChunk(chunk: FloatArray, chunkStartMillis: Long) {
@@ -65,11 +76,13 @@ class SleepTrackingSessionController(
         ) {
             is AudioProcessingResult.Skipped -> {
                 audioEventRecorder.onClassificationWindow(result.windowStartMillis, windowEndMillis, emptyList())
-                _state.value = _state.value.copy(
-                    isReconnecting = false,
-                    latestStatus = "Listening for sleep events...",
-                    latestResults = emptyList()
-                )
+                _state.update {
+                    it.copy(
+                        isReconnecting = false,
+                        latestStatus = "Listening for sleep events...",
+                        latestResults = emptyList()
+                    )
+                }
             }
             is AudioProcessingResult.Classified -> {
                 audioEventRecorder.onClassificationWindow(
@@ -77,34 +90,38 @@ class SleepTrackingSessionController(
                     windowEndMillis,
                     result.occurringGroupResults
                 )
-                _state.value = _state.value.copy(
-                    isReconnecting = false,
-                    latestStatus = if (result.occurringGroupResults.isEmpty()) {
-                        "Listening for sleep events..."
-                    } else {
-                        ""
-                    },
-                    latestResults = result.occurringGroupResults.map { groupResult ->
-                        DetectedClassUi(
-                            label = groupResult.group.displayLabel(),
-                            probabilityPercent = (groupResult.probability * 100).toInt()
-                        )
-                    }
-                )
+                _state.update {
+                    it.copy(
+                        isReconnecting = false,
+                        latestStatus = if (result.occurringGroupResults.isEmpty()) {
+                            "Listening for sleep events..."
+                        } else {
+                            ""
+                        },
+                        latestResults = result.occurringGroupResults.map { groupResult ->
+                            DetectedClassUi(
+                                label = groupResult.group.displayLabel(),
+                                probabilityPercent = (groupResult.probability * 100).toInt()
+                            )
+                        }
+                    )
+                }
             }
             is AudioProcessingResult.Failed -> {
                 audioEventRecorder.onClassificationWindow(result.windowStartMillis, windowEndMillis, emptyList())
-                _state.value = _state.value.copy(
-                    isReconnecting = false,
-                    latestStatus = "Listening for sleep events...",
-                    latestResults = emptyList()
-                )
+                _state.update {
+                    it.copy(
+                        isReconnecting = false,
+                        latestStatus = "Listening for sleep events...",
+                        latestResults = emptyList()
+                    )
+                }
             }
         }
     }
 
     fun onCaptureInterrupted() {
-        _state.value = _state.value.copy(isReconnecting = true, latestResults = emptyList())
+        _state.update { it.copy(isReconnecting = true, latestResults = emptyList()) }
         audioEventRecorder.onCaptureInterrupted()
         audioProcessingPipeline?.reset()
     }
@@ -121,10 +138,14 @@ class SleepTrackingSessionController(
                 audioEventRecorder.reset()
                 stopCurrentPipeline()
             } finally {
-                _state.value = SleepTrackingSessionState(
-                    latestStatus = "Stopped",
-                    interruptedAtMillis = endedAtMillis.takeIf { interrupted }
-                )
+                synchronized(saveStatusLock) {
+                    if (!save) saveStatusSession = null
+                    _state.value = SleepTrackingSessionState(
+                        latestStatus = "Stopped",
+                        interruptedAtMillis = endedAtMillis.takeIf { interrupted },
+                        hasSaveFailure = save && _state.value.hasSaveFailure
+                    )
+                }
             }
         }
     }

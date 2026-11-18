@@ -1,6 +1,7 @@
 package com.example.snorelyzer.ml.recording
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -72,6 +73,30 @@ class WavAudioClipWriterTest {
         assertEquals(0, pcm.getShort(48).toInt())
         assertEquals(32767, pcm.getShort(50).toInt())
         assertEquals(32767, pcm.getShort(52).toInt())
+    }
+
+    @Test
+    fun failedWriteRemovesPartiallyEncodedFile() {
+        val writer = WavAudioClipWriter(temporaryFolder.root)
+        val samples = FloatArray(10_000) { 0.5f }
+        samples[samples.lastIndex] = Float.NaN
+        val request = AudioClipWriteRequest(
+            episodeId = "episode-1",
+            sessionId = "session-1",
+            samples = samples,
+            sampleRate = 1_000,
+            clipStartMillis = 0,
+            clipEndMillis = 10_000
+        )
+
+        assertThrows(IllegalArgumentException::class.java) { writer.writeClip(request) }
+        assertTrue(temporaryFolder.root.listFiles().orEmpty().isEmpty())
+
+        samples[samples.lastIndex] = -1f
+        val saved = java.io.File(writer.writeClip(request).filePath)
+        val pcm = ByteBuffer.wrap(saved.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(44 + samples.size * 2, pcm.limit())
+        assertEquals(-32767, pcm.getShort(pcm.limit() - 2).toInt())
     }
 
     private fun ByteArray.asAscii(offset: Int, length: Int): String {

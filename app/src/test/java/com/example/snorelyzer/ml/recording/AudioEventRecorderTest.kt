@@ -218,33 +218,71 @@ class AudioEventRecorderTest {
     }
 
     @Test
-    fun clipBoundaryClampsToMaxClipDuration() {
+    fun continuousTwelveMinuteEpisodeSavesEverySampleInConsecutiveClips() {
         val writer = FakeAudioClipWriter()
         val recorder = testRecorder(
-            maxClipDurationMillis = 8_000L,
+            bufferDurationMillis = 330_000L,
             writer = writer
         )
 
         recorder.startSession(startedAtMillis = 0L)
-        recorder.feedAudio(durationMillis = 50_000L)
-        recorder.onClassificationWindow(
-            windowStartMillis = 10_000L,
-            windowEndMillis = 20_000L,
-            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
-        )
-        recorder.onClassificationWindow(
-            windowStartMillis = 30_000L,
-            windowEndMillis = 40_000L,
-            occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.40f))
-        )
-        recorder.stopSession(endedAtMillis = 50_000L)
+        for (second in 0 until 720) {
+            val start = second * 1_000L
+            val end = start + 1_000L
+            val samples = FloatArray(1_000) { index -> (start + index).toFloat() }
+            recorder.onAudioChunk(samples, chunkStartMillis = start)
+            recorder.onClassificationWindow(
+                windowStartMillis = (end - 10_000L).coerceAtLeast(0),
+                windowEndMillis = end,
+                occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+            )
+            assertTrue(recorder.shouldForceInference)
+        }
+        assertEquals(2, writer.requests.size)
+        recorder.stopSession(endedAtMillis = 720_000L)
 
+        val boundaries = listOf(0L to 300_000L, 300_000L to 600_000L, 600_000L to 720_000L)
+        assertEquals(boundaries, writer.requests.map { it.clipStartMillis to it.clipEndMillis })
+        assertEquals(
+            boundaries,
+            recorder.completedEpisodeMetadata.map { it.clipStartMillis to it.clipEndMillis }
+        )
+        assertEquals(3, recorder.currentSession?.completedEpisodeCount)
+        assertEquals(3, recorder.completedEpisodeMetadata.map { it.episodeId }.toSet().size)
+        recorder.completedEpisodeMetadata.zip(writer.requests).forEach { (episode, request) ->
+            val span = episode.eventSpans.single()
+            assertEquals(request.clipStartMillis, span.startedAtMillis)
+            assertEquals(request.clipEndMillis, span.endedAtMillis)
+            assertEquals(episode.durationMillis.toInt(), request.samples.size)
+            assertTrue(request.samples.indices.all { index ->
+                request.samples[index] == (request.clipStartMillis + index).toFloat()
+            })
+        }
+    }
+
+    @Test
+    fun failedSegmentDoesNotStopTheNextSegmentFromSaving() {
+        val writer = FakeAudioClipWriter(failOnWrite = 1)
+        val recorder = testRecorder(maxClipDurationMillis = 10_000L, writer = writer)
+        var failures = 0
+        recorder.startSession(startedAtMillis = 0L) { failures++ }
+
+        for (second in 0 until 15) {
+            val start = second * 1_000L
+            recorder.onAudioChunk(FloatArray(1_000), chunkStartMillis = start)
+            recorder.onClassificationWindow(
+                windowStartMillis = start,
+                windowEndMillis = start + 1_000L,
+                occurringGroups = listOf(groupResult(RecordedEventGroup.Snoring, 0.31f))
+            )
+        }
+        recorder.stopSession(endedAtMillis = 15_000L)
+
+        assertEquals(1, failures)
+        assertEquals(2, writer.requests.size)
         val episode = recorder.completedEpisodeMetadata.single()
-        assertEquals(8_000L, episode.clipStartMillis)
-        assertEquals(16_000L, episode.clipEndMillis)
-        assertEquals(8_000L, episode.durationMillis)
-        assertEquals(1, writer.requests.size)
-        assertEquals(8_000, writer.requests.single().samples.size)
+        assertEquals(10_000L, episode.clipStartMillis)
+        assertEquals(15_000L, episode.clipEndMillis)
     }
 
     @Test
@@ -267,11 +305,12 @@ class AudioEventRecorderTest {
 
     @Test
     fun failedClipWriteDoesNotEmitEpisodeMetadata() {
-        val writer = FakeAudioClipWriter(shouldThrow = true)
+        val writer = FakeAudioClipWriter(failOnWrite = 1)
         val sink = FakeRecordingMetadataSink()
         val recorder = testRecorder(writer = writer, metadataSink = sink)
+        var failures = 0
 
-        recorder.startSession(startedAtMillis = 0L)
+        recorder.startSession(startedAtMillis = 0L) { failures++ }
         recorder.feedAudio(durationMillis = 30_000L)
         recorder.onClassificationWindow(
             windowStartMillis = 10_000L,
@@ -283,6 +322,7 @@ class AudioEventRecorderTest {
         assertTrue(recorder.completedEpisodeMetadata.isEmpty())
         assertEquals(1, writer.requests.size)
         assertTrue(sink.completedEpisodes.isEmpty())
+        assertEquals(1, failures)
     }
 
     @Test
@@ -459,14 +499,14 @@ class AudioEventRecorderTest {
     }
 
     private class FakeAudioClipWriter(
-        private val shouldThrow: Boolean = false
+        private val failOnWrite: Int? = null
     ) : AudioClipWriter {
         val requests = mutableListOf<AudioClipWriteRequest>()
         val deletedClips = mutableListOf<String>()
 
         override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult {
             requests += request
-            if (shouldThrow) error("Write failed")
+            if (requests.size == failOnWrite) error("Write failed")
             return AudioClipWriteResult(
                 filePath = "fake/${request.episodeId}.wav",
                 sampleRate = request.sampleRate,
@@ -488,15 +528,15 @@ class AudioEventRecorderTest {
         val completedSessions = mutableListOf<RecordingSessionMetadata>()
         val discardedSessions = mutableListOf<String>()
 
-        override fun onSessionStarted(session: RecordingSessionMetadata) {
+        override fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
             startedSessions += session
         }
 
-        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) {
+        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata, onFailure: () -> Unit) {
             completedEpisodes += episode
         }
 
-        override fun onSessionCompleted(session: RecordingSessionMetadata) {
+        override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
             completedSessions += session
         }
 

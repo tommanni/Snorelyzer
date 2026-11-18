@@ -14,4 +14,5 @@
     <string name="record_listening_for_sleep_events">Listening for sleep events…</string>
     <string name="record_reconnecting_microphone">Reconnecting microphone…</string>
     <string name="record_interrupted_at">Sleep recording ended early at %1$s.</string>
+    <string name="record_save_failed">Some recordings couldn’t be saved.</string>
 </resources>

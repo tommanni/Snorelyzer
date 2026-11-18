@@ -195,6 +195,24 @@ class SleepTrackingSessionControllerTest {
         controller.stopSession(save = false, endedAtMillis = 23_000L)
     }
 
+    @Test
+    fun lateMetadataFailureWarnsAfterStopAndDoesNotAffectNextSession() {
+        val sink = FakeRecordingMetadataSink()
+        val controller = controller(sink = sink)
+        controller.startSession(startedAtMillis = 1_000L)
+        controller.stopSession(save = true, endedAtMillis = 2_000L)
+
+        val reportFailure = sink.sessionCompletionFailures.single()
+        assertFalse(controller.state.value.hasSaveFailure)
+        reportFailure()
+        assertTrue(controller.state.value.hasSaveFailure)
+        assertFalse(controller.state.value.isRunning)
+
+        controller.startSession(startedAtMillis = 3_000L)
+        reportFailure()
+        assertFalse(controller.state.value.hasSaveFailure)
+    }
+
     private fun controller(
         pipeline: FakeSleepAudioProcessor = FakeSleepAudioProcessor(),
         sink: FakeRecordingMetadataSink = FakeRecordingMetadataSink()
@@ -268,17 +286,19 @@ class SleepTrackingSessionControllerTest {
         val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
         val completedSessions = mutableListOf<RecordingSessionMetadata>()
         val discardedSessionIds = mutableListOf<String>()
+        val sessionCompletionFailures = mutableListOf<() -> Unit>()
 
-        override fun onSessionStarted(session: RecordingSessionMetadata) {
+        override fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
             startedSessions += session
         }
 
-        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) {
+        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata, onFailure: () -> Unit) {
             completedEpisodes += episode
         }
 
-        override fun onSessionCompleted(session: RecordingSessionMetadata) {
+        override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
             completedSessions += session
+            sessionCompletionFailures += onFailure
         }
 
         override fun onSessionDiscarded(sessionId: String) {

@@ -215,6 +215,11 @@ fun ActiveSleepSessionScreen(
                 )
             }
 
+            if (state.hasSaveFailure) {
+                Spacer(modifier = Modifier.height(16.dp))
+                RecordingWarning(stringResource(R.string.record_save_failed))
+            }
+
             if (state.latestResults.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
                 FlowRow(
@@ -332,6 +337,7 @@ private fun ActiveSleepSessionDarkPreview() {
                     isServiceRunning = true,
                     sessionStartedAtMillis = System.currentTimeMillis() - 7200000L,
                     latestStatus = "Listening for sleep sounds...",
+                    hasSaveFailure = true,
                     latestResults = listOf(
                         DetectedClassUi("Snoring", 78),
                         DetectedClassUi("Cough", 12)
@@ -352,7 +358,8 @@ private fun ActiveSleepSessionLightPreview() {
                 state = RecordState(
                     isServiceRunning = true,
                     sessionStartedAtMillis = System.currentTimeMillis() - 7200000L,
-                    isReconnecting = true
+                    isReconnecting = true,
+                    hasSaveFailure = true
                 ),
                 onAction = {}
             )

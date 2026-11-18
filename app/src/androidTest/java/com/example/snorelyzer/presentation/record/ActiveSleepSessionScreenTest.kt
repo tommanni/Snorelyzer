@@ -37,6 +37,21 @@ class ActiveSleepSessionScreenTest {
     }
 
     @Test
+    fun activeSessionShowsSaveFailureWarning() {
+        composeRule.setContent {
+            SnorelyzerTheme {
+                ActiveSleepSessionScreen(
+                    state = RecordState(isServiceRunning = true, hasSaveFailure = true),
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Some recordings couldn’t be saved.").assertIsDisplayed()
+        composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
+    }
+
+    @Test
     fun reconnectingStateShowsMicrophoneStatusAndKeepsStopAvailable() {
         composeRule.setContent {
             SnorelyzerTheme {
