@@ -39,13 +39,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.snorelyzer.DetectedClassUi
+import com.example.snorelyzer.R
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import kotlinx.coroutines.delay
 import org.koin.androidx.compose.koinViewModel
@@ -112,6 +113,11 @@ fun ActiveSleepSessionScreen(
         ),
         label = "pulseScale"
     )
+    val indicatorColor = if (state.isReconnecting) {
+        MaterialTheme.colorScheme.tertiary
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
 
     Column(
         modifier = Modifier
@@ -172,10 +178,13 @@ fun ActiveSleepSessionScreen(
                     Box(
                         modifier = Modifier
                             .size(8.dp)
-                            .background(Color(0xFF4CAF50), CircleShape)
+                            .background(indicatorColor, CircleShape)
                     )
                     Text(
-                        text = "Recording in Progress",
+                        text = stringResource(
+                            if (state.isReconnecting) R.string.record_reconnecting_microphone
+                            else R.string.record_in_progress
+                        ),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -197,12 +206,14 @@ fun ActiveSleepSessionScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Current sound detection status
-            Text(
-                text = state.latestStatus,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+            if (!state.isReconnecting) {
+                Text(
+                    text = state.latestStatus,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
 
             if (state.latestResults.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -341,7 +352,7 @@ private fun ActiveSleepSessionLightPreview() {
                 state = RecordState(
                     isServiceRunning = true,
                     sessionStartedAtMillis = System.currentTimeMillis() - 7200000L,
-                    latestStatus = "Listening for sleep sounds..."
+                    isReconnecting = true
                 ),
                 onAction = {}
             )

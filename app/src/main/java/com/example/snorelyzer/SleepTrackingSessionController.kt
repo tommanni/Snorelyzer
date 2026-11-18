@@ -17,7 +17,9 @@ data class SleepTrackingSessionState(
     val latestStatus: String = "Waiting for audio...",
     val latestResults: List<DetectedClassUi> = emptyList(),
     val isRunning: Boolean = false,
-    val sessionStartedAtMillis: Long? = null
+    val sessionStartedAtMillis: Long? = null,
+    val isReconnecting: Boolean = false,
+    val interruptedAtMillis: Long? = null
 )
 
 interface SleepTrackingSessionStateSource {
@@ -26,9 +28,12 @@ interface SleepTrackingSessionStateSource {
 
 class SleepTrackingSessionController(
     private val audioEventRecorder: AudioEventRecorder,
-    private val audioProcessingPipelineFactory: () -> SleepAudioProcessor
+    private val audioProcessingPipelineFactory: () -> SleepAudioProcessor,
+    initialInterruptedAtMillis: Long? = null
 ) : SleepTrackingSessionStateSource {
-    private val _state = MutableStateFlow(SleepTrackingSessionState())
+    private val _state = MutableStateFlow(
+        SleepTrackingSessionState(interruptedAtMillis = initialInterruptedAtMillis)
+    )
     override val state = _state.asStateFlow()
 
     private var audioProcessingPipeline: SleepAudioProcessor? = null
@@ -61,6 +66,7 @@ class SleepTrackingSessionController(
             is AudioProcessingResult.Skipped -> {
                 audioEventRecorder.onClassificationWindow(result.windowStartMillis, windowEndMillis, emptyList())
                 _state.value = _state.value.copy(
+                    isReconnecting = false,
                     latestStatus = "Listening for sleep events...",
                     latestResults = emptyList()
                 )
@@ -72,6 +78,7 @@ class SleepTrackingSessionController(
                     result.occurringGroupResults
                 )
                 _state.value = _state.value.copy(
+                    isReconnecting = false,
                     latestStatus = if (result.occurringGroupResults.isEmpty()) {
                         "Listening for sleep events..."
                     } else {
@@ -88,6 +95,7 @@ class SleepTrackingSessionController(
             is AudioProcessingResult.Failed -> {
                 audioEventRecorder.onClassificationWindow(result.windowStartMillis, windowEndMillis, emptyList())
                 _state.value = _state.value.copy(
+                    isReconnecting = false,
                     latestStatus = "Listening for sleep events...",
                     latestResults = emptyList()
                 )
@@ -95,20 +103,30 @@ class SleepTrackingSessionController(
         }
     }
 
-    fun stopSession(save: Boolean, endedAtMillis: Long) {
-        if (save) {
-            audioEventRecorder.stopSession(endedAtMillis)
-        } else {
-            audioEventRecorder.discardSession()
+    fun onCaptureInterrupted() {
+        _state.value = _state.value.copy(isReconnecting = true, latestResults = emptyList())
+        audioEventRecorder.onCaptureInterrupted()
+        audioProcessingPipeline?.reset()
+    }
+
+    fun stopSession(save: Boolean, endedAtMillis: Long, interrupted: Boolean = false) {
+        try {
+            if (save) {
+                audioEventRecorder.stopSession(endedAtMillis)
+            } else {
+                audioEventRecorder.discardSession()
+            }
+        } finally {
+            try {
+                audioEventRecorder.reset()
+                stopCurrentPipeline()
+            } finally {
+                _state.value = SleepTrackingSessionState(
+                    latestStatus = "Stopped",
+                    interruptedAtMillis = endedAtMillis.takeIf { interrupted }
+                )
+            }
         }
-        audioEventRecorder.reset()
-        stopCurrentPipeline()
-        _state.value = SleepTrackingSessionState(
-            latestStatus = "Stopped",
-            latestResults = emptyList(),
-            isRunning = false,
-            sessionStartedAtMillis = null
-        )
     }
 
     private fun stopCurrentPipeline() {

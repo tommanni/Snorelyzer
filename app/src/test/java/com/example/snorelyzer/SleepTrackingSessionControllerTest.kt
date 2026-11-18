@@ -115,6 +115,60 @@ class SleepTrackingSessionControllerTest {
     }
 
     @Test
+    fun reconnectClosesTheEpisodeAndResumesInTheSameSessionAfterTheGap() {
+        val pipeline = FakeSleepAudioProcessor(
+            results = ArrayDeque(listOf(1_000L, 10_000L).map { start ->
+                AudioProcessingResult.Classified(
+                    windowStartMillis = start,
+                    gateDecision = gateDecision(shouldInfer = true),
+                    groupResults = listOf(snoringResult),
+                    occurringGroupResults = listOf(snoringResult)
+                )
+            })
+        )
+        val sink = FakeRecordingMetadataSink()
+        val controller = controller(pipeline, sink)
+        controller.startSession(startedAtMillis = 1_000L)
+        controller.onAudioChunk(chunk, chunkStartMillis = 1_000L)
+
+        controller.onCaptureInterrupted()
+
+        assertTrue(controller.state.value.isRunning)
+        assertTrue(controller.state.value.isReconnecting)
+        assertTrue(controller.state.value.latestResults.isEmpty())
+        assertEquals(2_000L, sink.completedEpisodes.single().clipEndMillis)
+        assertEquals(2, pipeline.resetCalls)
+
+        controller.onAudioChunk(chunk, chunkStartMillis = 10_000L)
+
+        assertFalse(controller.state.value.isReconnecting)
+        assertEquals(1_000L, controller.state.value.sessionStartedAtMillis)
+        assertEquals(listOf(false, false), pipeline.forceInferenceValues)
+        controller.stopSession(save = true, endedAtMillis = 11_000L)
+        val session = sink.completedSessions.single()
+        assertEquals(sink.startedSessions.single().sessionId, session.sessionId)
+        assertEquals(2, session.completedEpisodeCount)
+        assertEquals(listOf(1_000L, 10_000L), sink.completedEpisodes.map { it.clipStartMillis })
+        assertTrue(sink.completedEpisodes.all { it.sessionId == session.sessionId })
+    }
+
+    @Test
+    fun exhaustedRecoveryPublishesEndTimeAndSavesThePartialSession() {
+        val sink = FakeRecordingMetadataSink()
+        val controller = controller(sink = sink)
+        controller.startSession(startedAtMillis = 1_000L)
+        controller.onAudioChunk(chunk, chunkStartMillis = 1_000L)
+        controller.onCaptureInterrupted()
+
+        controller.stopSession(save = true, endedAtMillis = 2_000L, interrupted = true)
+
+        assertFalse(controller.state.value.isRunning)
+        assertFalse(controller.state.value.isReconnecting)
+        assertEquals(2_000L, controller.state.value.interruptedAtMillis)
+        assertEquals(2_000L, sink.completedSessions.single().endedAtMillis)
+    }
+
+    @Test
     fun negativeWindowKeepsInferenceForcedUntilQuietTimeout() {
         val pipeline = FakeSleepAudioProcessor(
             results = ArrayDeque(
@@ -211,6 +265,7 @@ class SleepTrackingSessionControllerTest {
 
     private class FakeRecordingMetadataSink : RecordingMetadataSink {
         val startedSessions = mutableListOf<RecordingSessionMetadata>()
+        val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
         val completedSessions = mutableListOf<RecordingSessionMetadata>()
         val discardedSessionIds = mutableListOf<String>()
 
@@ -218,7 +273,9 @@ class SleepTrackingSessionControllerTest {
             startedSessions += session
         }
 
-        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) = Unit
+        override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata) {
+            completedEpisodes += episode
+        }
 
         override fun onSessionCompleted(session: RecordingSessionMetadata) {
             completedSessions += session

@@ -17,7 +17,9 @@ data class RecordState(
     val isServiceRunning: Boolean = false,
     val sessionStartedAtMillis: Long? = null,
     val showShortSessionDialog: Boolean = false,
-    val stopTrackingHoldResetKey: Int = 0
+    val stopTrackingHoldResetKey: Int = 0,
+    val isReconnecting: Boolean = false,
+    val interruptedAtMillis: Long? = null
 )
 
 sealed interface RecordAction {
@@ -53,7 +55,9 @@ class RecordViewModel(
                         latestStatus = sessionState.latestStatus,
                         latestResults = sessionState.latestResults,
                         isServiceRunning = sessionState.isRunning,
-                        sessionStartedAtMillis = sessionState.sessionStartedAtMillis
+                        sessionStartedAtMillis = sessionState.sessionStartedAtMillis,
+                        isReconnecting = sessionState.isReconnecting,
+                        interruptedAtMillis = sessionState.interruptedAtMillis
                     )
                 }
             }

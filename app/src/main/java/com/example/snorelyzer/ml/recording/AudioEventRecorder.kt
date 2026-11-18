@@ -179,6 +179,11 @@ class AudioEventRecorder(
         closeEpisodeIfQuiet(windowEndMillis)
     }
 
+    fun onCaptureInterrupted() {
+        closeActiveEpisode()
+        rollingBuffer.reset()
+    }
+
     fun stopSession(endedAtMillis: Long) {
         closeActiveEpisode()
         session = session?.copy(

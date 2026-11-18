@@ -37,6 +37,22 @@ class ActiveSleepSessionScreenTest {
     }
 
     @Test
+    fun reconnectingStateShowsMicrophoneStatusAndKeepsStopAvailable() {
+        composeRule.setContent {
+            SnorelyzerTheme {
+                ActiveSleepSessionScreen(
+                    state = RecordState(isServiceRunning = true, isReconnecting = true),
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Reconnecting microphone…").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Recording in Progress").assertCountEquals(0)
+        composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
+    }
+
+    @Test
     fun tappingStopTrackingDoesNotDispatchStopAction() {
         val actions = mutableListOf<RecordAction>()
 

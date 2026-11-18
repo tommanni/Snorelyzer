@@ -4,6 +4,7 @@ import androidx.media3.common.Player
 import androidx.room.Room
 import com.example.snorelyzer.SleepTrackingSessionController
 import com.example.snorelyzer.SleepTrackingSessionStateSource
+import com.example.snorelyzer.data.local.RecordingInterruptionStore
 import com.example.snorelyzer.data.local.RoomRecordingMetadataSink
 import com.example.snorelyzer.data.local.RoomSleepRecordingDataSource
 import com.example.snorelyzer.data.local.SleepRecordingLocalDataSource
@@ -56,10 +57,12 @@ val appModule = module {
     }
     single<AudioClipWriter> { WavAudioClipWriter(androidContext()) }
     factory { AudioEventRecorder(clipWriter = get(), metadataSink = get()) }
+    single { RecordingInterruptionStore(androidContext()) }
     single {
         SleepTrackingSessionController(
             audioEventRecorder = get(),
-            audioProcessingPipelineFactory = { get<AudioProcessingPipeline>() }
+            audioProcessingPipelineFactory = { get<AudioProcessingPipeline>() },
+            initialInterruptedAtMillis = get<RecordingInterruptionStore>().interruptedAtMillis
         )
     }
     single<SleepTrackingSessionStateSource> { get<SleepTrackingSessionController>() }
