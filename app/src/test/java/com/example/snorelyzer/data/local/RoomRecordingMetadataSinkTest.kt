@@ -54,6 +54,8 @@ class RoomRecordingMetadataSinkTest {
 
         override suspend fun deleteSession(sessionId: String) = Unit
 
+        override suspend fun deleteFinishedSessions(sessionIds: List<String>) = error("Unexpected deletion")
+
         override suspend fun deleteAllSessions() = Unit
 
         override fun observeSessions() = emptyFlow<List<RecordingSessionWithEpisodes>>()

@@ -41,7 +41,7 @@ val appModule = module {
         ).build()
     }
     single { get<SnorelyzerDatabase>().sleepRecordingDao }
-    single<SleepRecordingLocalDataSource> { RoomSleepRecordingDataSource(dao = get()) }
+    single<SleepRecordingLocalDataSource> { RoomSleepRecordingDataSource(database = get(), audioClipWriter = get()) }
     single<RecordingMetadataSink> { RoomRecordingMetadataSink(localDataSource = get()) }
     single { RecordedEventConfig() }
     factory<MelSpectrogramProcessor> { AudioProcessor(androidContext()) }

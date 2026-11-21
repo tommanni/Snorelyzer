@@ -6,6 +6,7 @@ import com.example.snorelyzer.ml.recording.EventSpanMetadata
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
+import com.example.snorelyzer.ml.recording.WavAudioClipWriter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -24,7 +25,7 @@ class SleepRecordingDaoTest {
         database = Room.inMemoryDatabaseBuilder(context, SnorelyzerDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        dataSource = RoomSleepRecordingDataSource(database.sleepRecordingDao)
+        dataSource = RoomSleepRecordingDataSource(database, WavAudioClipWriter(context))
     }
 
     @After

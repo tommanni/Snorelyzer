@@ -53,6 +53,15 @@ interface SleepRecordingDao {
     @Query("DELETE FROM recording_sessions WHERE sessionId = :sessionId")
     suspend fun deleteSession(sessionId: String)
 
+    @Query("SELECT COUNT(*) FROM recording_sessions WHERE sessionId IN (:sessionIds) AND endedAtMillis IS NULL")
+    suspend fun countActiveSessions(sessionIds: List<String>): Int
+
+    @Query("SELECT DISTINCT filePath FROM recording_episodes WHERE sessionId IN (:sessionIds) AND filePath IS NOT NULL")
+    suspend fun getAudioPaths(sessionIds: List<String>): List<String>
+
+    @Query("DELETE FROM recording_sessions WHERE sessionId IN (:sessionIds)")
+    suspend fun deleteSessions(sessionIds: List<String>)
+
     @Query("DELETE FROM recording_sessions")
     suspend fun deleteAllSessions()
 

@@ -33,14 +33,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -52,10 +56,13 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,6 +83,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
 @Composable
@@ -121,6 +129,51 @@ fun InsightsScreen(
         )
     }
 
+    val nightToDelete = sessionState.nightToDelete
+    if (state.selectedTab == InsightsTab.Session && nightToDelete != null) {
+        val date = nightToDelete.date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG))
+        val count = nightToDelete.sessions.size
+        val recordings = if (count == 1) "1 session and its audio" else "$count sessions and their audio"
+        AlertDialog(
+            onDismissRequest = { onSessionAction(SessionInsightsAction.OnDismissDeleteNight) },
+            title = { Text("Delete night?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Permanently delete $recordings for the sleep night of $date?")
+                    if (sessionState.nightDeletionFailed) {
+                        Text(
+                            "Couldn’t finish deleting this night. Try again.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !sessionState.isDeletingNight,
+                    onClick = { onSessionAction(SessionInsightsAction.OnConfirmDeleteNight) }
+                ) {
+                    Text(
+                        if (sessionState.isDeletingNight) "Deleting…" else "Delete night",
+                        color = if (sessionState.isDeletingNight) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !sessionState.isDeletingNight,
+                    onClick = { onSessionAction(SessionInsightsAction.OnDismissDeleteNight) }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -148,6 +201,29 @@ fun InsightsScreen(
                     enabled = !sessionState.isLoading && sessionState.availableDates.isNotEmpty(),
                     onClick = { onSessionAction(SessionInsightsAction.OnShowDatePicker) }
                 )
+                if (sessionState.selectedNight?.endedAtMillis != null) {
+                    var menuExpanded by remember(sessionState.selectedDate) { mutableStateOf(false) }
+                    Box {
+                        IconButton(
+                            enabled = !sessionState.isDeletingNight,
+                            onClick = { menuExpanded = true }
+                        ) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Night options")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Delete night") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSessionAction(SessionInsightsAction.OnRequestDeleteNight)
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
 

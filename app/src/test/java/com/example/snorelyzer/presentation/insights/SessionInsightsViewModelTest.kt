@@ -176,6 +176,29 @@ class SessionInsightsViewModelTest {
         assertFalse(viewModel.state.value.isDatePickerVisible)
     }
 
+    @Test
+    fun `confirming deletion targets the sessions shown in the confirmation`() = runTest {
+        val latest = sleepNight(LocalDate.of(2026, 6, 10), "latest")
+        val first = sleepNight(LocalDate.of(2026, 6, 9), "first")
+        val second = sleepNight(first.date, "second")
+        val target = first.copy(sessions = first.sessions + second.sessions)
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        advanceUntilIdle()
+        sleepNights.emit(listOf(latest, target))
+
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(target.date))
+        viewModel.onAction(SessionInsightsAction.OnRequestDeleteNight)
+        assertEquals(target, viewModel.state.value.nightToDelete)
+
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(latest.date))
+        viewModel.onAction(SessionInsightsAction.OnConfirmDeleteNight)
+        advanceUntilIdle()
+
+        assertEquals(listOf("first", "second"), localDataSource.deletedSessionIds)
+        assertNull(viewModel.state.value.nightToDelete)
+        assertFalse(viewModel.state.value.isDeletingNight)
+    }
+
     private fun sleepNight(
         date: LocalDate,
         sessionId: String
@@ -225,6 +248,13 @@ private class FakeSleepRecordingLocalDataSource(
     override suspend fun completeSession(session: RecordingSessionMetadata) = Unit
 
     override suspend fun deleteSession(sessionId: String) = Unit
+
+    var deletedSessionIds: List<String> = emptyList()
+        private set
+
+    override suspend fun deleteFinishedSessions(sessionIds: List<String>) {
+        deletedSessionIds += sessionIds
+    }
 
     override suspend fun deleteAllSessions() = Unit
 

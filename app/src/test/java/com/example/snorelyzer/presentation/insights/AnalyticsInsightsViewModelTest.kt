@@ -123,6 +123,8 @@ private class FakeAnalyticsDataSource(
     override suspend fun insertEpisode(episode: RecordingEpisodeMetadata) = Unit
     override suspend fun completeSession(session: RecordingSessionMetadata) = Unit
     override suspend fun deleteSession(sessionId: String) = Unit
+    override suspend fun deleteFinishedSessions(sessionIds: List<String>) = error("Unexpected deletion")
+
     override suspend fun deleteAllSessions() = Unit
     override fun observeSessions(): Flow<List<RecordingSessionWithEpisodes>> = emptyFlow()
     override fun observeSleepNights(zoneId: ZoneId): Flow<List<SleepNight>> = sleepNights
