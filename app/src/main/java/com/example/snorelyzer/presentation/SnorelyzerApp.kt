@@ -270,7 +270,7 @@ fun SnorelyzerApp(
                         )
                     }
                     composable<InsightsRoute> {
-                        InsightsRoot()
+                        InsightsRoot(snackbarHostState = snackbarHostState)
                     }
                     composable<SettingsRoute> {
                         SettingsScreen()

@@ -1,7 +1,9 @@
 package com.example.snorelyzer.presentation.insights
 
 import androidx.media3.common.Player
-import java.lang.reflect.Proxy
+import com.example.snorelyzer.data.local.AudioExportDestination
+import com.example.snorelyzer.data.local.AudioExportFormat
+import com.example.snorelyzer.data.local.RecordingEpisodeEntity
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionEntity
 import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
@@ -10,12 +12,16 @@ import com.example.snorelyzer.data.local.SleepRecordingLocalDataSource
 import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import com.example.snorelyzer.presentation.record.MainDispatcherRule
+import java.io.ByteArrayOutputStream
+import java.lang.reflect.Proxy
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.zip.ZipInputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -24,12 +30,16 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionInsightsViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
+    val files = TemporaryFolder()
 
     private val sleepNights = MutableSharedFlow<List<SleepNight>>()
     private val localDataSource = FakeSleepRecordingLocalDataSource(sleepNights)
@@ -197,6 +207,83 @@ class SessionInsightsViewModelTest {
         assertEquals(listOf("first", "second"), localDataSource.deletedSessionIds)
         assertNull(viewModel.state.value.nightToDelete)
         assertFalse(viewModel.state.value.isDeletingNight)
+    }
+
+    @Test
+    fun `export uses the night requested before opening the picker`() = runTest {
+        val latest = nightWithClip(LocalDate.of(2026, 6, 10), "latest")
+        val older = nightWithClip(LocalDate.of(2026, 6, 9), "older")
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        sleepNights.emit(listOf(latest, older))
+        advanceUntilIdle()
+
+        viewModel.onAction(SessionInsightsAction.OnExportNight)
+        assertEquals(
+            SessionInsightsEvent.ChooseExportDestination(AudioExportFormat.Zip, "Snorelyzer-2026-06-10.zip"),
+            viewModel.events.first()
+        )
+        viewModel.onAction(SessionInsightsAction.OnRequestDeleteNight)
+        assertNull(viewModel.state.value.nightToDelete)
+
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(older.date))
+        val output = ByteArrayOutputStream()
+        val destination = object : AudioExportDestination {
+            override fun open() = output
+            override fun discard() = error("Successful export should keep its destination")
+        }
+        viewModel.onAction(SessionInsightsAction.OnExportDestinationResult(destination))
+
+        assertEquals(SessionInsightsEvent.AudioSaved(AudioExportFormat.Zip, 1, 0), viewModel.events.first())
+        ZipInputStream(output.toByteArray().inputStream()).use { archive ->
+            assertTrue(archive.nextEntry.name.startsWith("session-01/"))
+            assertEquals("latest", archive.readBytes().decodeToString())
+            assertNull(archive.nextEntry)
+        }
+        assertEquals(older.date, viewModel.state.value.selectedDate)
+        assertNull(viewModel.state.value.audioExport)
+    }
+
+    @Test
+    fun `canceling the save picker allows the clip to be requested again`() = runTest {
+        val night = nightWithClip(LocalDate.of(2026, 6, 10), "latest")
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        sleepNights.emit(listOf(night))
+        advanceUntilIdle()
+
+        val action = SessionInsightsAction.OnSaveClip(night.allEpisodes.single().episode.episodeId)
+        viewModel.onAction(action)
+        val firstRequest = viewModel.events.first() as SessionInsightsEvent.ChooseExportDestination
+        assertEquals(AudioExportFormat.Wav, firstRequest.format)
+
+        viewModel.onAction(SessionInsightsAction.OnExportDestinationResult(null))
+        assertNull(viewModel.state.value.audioExport)
+        viewModel.onAction(action)
+        assertEquals(firstRequest, viewModel.events.first())
+    }
+
+    @Test
+    fun `night with no audio reports unavailability before opening the picker`() = runTest {
+        val night = nightWithClip(LocalDate.of(2026, 6, 10), "latest")
+        assertTrue(files.root.resolve("latest.wav").delete())
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        sleepNights.emit(listOf(night))
+        advanceUntilIdle()
+
+        viewModel.onAction(SessionInsightsAction.OnExportNight)
+
+        assertEquals(SessionInsightsEvent.ExportAudioUnavailable, viewModel.events.first())
+        assertNull(viewModel.state.value.audioExport)
+    }
+
+    private fun nightWithClip(date: LocalDate, sessionId: String): SleepNight {
+        val audio = files.newFile("$sessionId.wav").apply { writeText(sessionId) }
+        val session = sleepNight(date, sessionId).sessions.single()
+        val episode = RecordingEpisodeWithDetails(
+            episode = RecordingEpisodeEntity("$sessionId-clip", sessionId, 0, 500, 500, 16_000, audio.absolutePath),
+            groups = emptyList(),
+            eventSpans = emptyList()
+        )
+        return SleepNight(date, listOf(session.copy(episodes = listOf(episode))))
     }
 
     private fun sleepNight(

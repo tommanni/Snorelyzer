@@ -1,6 +1,10 @@
 package com.example.snorelyzer.presentation.insights
 
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
@@ -8,6 +12,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +42,9 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
@@ -51,14 +59,18 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -71,15 +83,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.LayoutBoundsHolder
 import androidx.compose.ui.layout.layoutBounds
 import androidx.compose.ui.layout.onVisibilityChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.snorelyzer.R
+import com.example.snorelyzer.data.local.AudioExportFormat
+import com.example.snorelyzer.data.local.DocumentAudioExportDestination
 import com.example.snorelyzer.data.local.EventSpanEntity
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
@@ -92,9 +108,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun InsightsRoot(
+    snackbarHostState: SnackbarHostState,
     viewModel: InsightsViewModel = koinViewModel(),
     sessionViewModel: SessionInsightsViewModel = koinViewModel()
 ) {
@@ -102,6 +120,45 @@ fun InsightsRoot(
 
     val sessionState by sessionViewModel.state.collectAsStateWithLifecycle()
     val playback = sessionViewModel.playback.collectAsStateWithLifecycle()
+
+    val context = LocalContext.current
+    val onExportResult: (Uri?) -> Unit = { uri ->
+        val destination = uri?.let { DocumentAudioExportDestination(context.applicationContext.contentResolver, it) }
+        sessionViewModel.onAction(SessionInsightsAction.OnExportDestinationResult(destination))
+    }
+    val saveWav = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav"), onExportResult)
+    val saveZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip"), onExportResult)
+    LaunchedEffect(sessionViewModel.events, context, snackbarHostState) {
+        sessionViewModel.events.collect { event ->
+            val message = when (event) {
+                is SessionInsightsEvent.ChooseExportDestination -> {
+                    val launcher = when (event.format) {
+                        AudioExportFormat.Wav -> saveWav
+                        AudioExportFormat.Zip -> saveZip
+                    }
+                    try {
+                        launcher.launch(event.fileName)
+                    } catch (_: ActivityNotFoundException) {
+                        sessionViewModel.onAction(SessionInsightsAction.OnExportPickerUnavailable)
+                    } catch (_: SecurityException) {
+                        sessionViewModel.onAction(SessionInsightsAction.OnExportPickerUnavailable)
+                    }
+                    null
+                }
+                is SessionInsightsEvent.AudioSaved -> when {
+                    event.format == AudioExportFormat.Wav -> context.getString(R.string.insights_clip_saved)
+                    event.skipped > 0 -> context.getString(R.string.insights_export_partial, event.saved, event.skipped)
+                    else -> context.resources.getQuantityString(R.plurals.insights_clips_exported, event.saved, event.saved)
+                }
+                SessionInsightsEvent.ExportAudioUnavailable -> context.getString(R.string.insights_export_audio_unavailable)
+                is SessionInsightsEvent.ExportFailed -> context.getString(
+                    if (event.incompleteFileMayRemain) R.string.insights_export_incomplete_file
+                    else R.string.insights_export_failed
+                )
+            }
+            if (message != null) launch { snackbarHostState.showSnackbar(message) }
+        }
+    }
 
     DisposableEffect(state.selectedTab, sessionViewModel) {
         onDispose { sessionViewModel.onAction(SessionInsightsAction.OnStopPlayback) }
@@ -164,7 +221,7 @@ fun InsightsScreen(
                     onClick = { onSessionAction(SessionInsightsAction.OnConfirmDeleteNight) }
                 ) {
                     Text(
-                        if (sessionState.isDeletingNight) "Deleting…" else "Delete night",
+                        if (sessionState.isDeletingNight) "Deleting…" else stringResource(R.string.insights_delete_night),
                         color = if (sessionState.isDeletingNight) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
@@ -211,21 +268,45 @@ fun InsightsScreen(
                     enabled = !sessionState.isLoading && sessionState.availableDates.isNotEmpty(),
                     onClick = { onSessionAction(SessionInsightsAction.OnShowDatePicker) }
                 )
-                if (sessionState.selectedNight?.endedAtMillis != null) {
+                val night = sessionState.selectedNight
+                if (night?.endedAtMillis != null) {
                     var menuExpanded by remember(sessionState.selectedDate) { mutableStateOf(false) }
                     Box {
                         IconButton(
                             enabled = !sessionState.isDeletingNight,
                             onClick = { menuExpanded = true }
                         ) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "Night options")
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.insights_night_options)
+                            )
                         }
                         DropdownMenu(
                             expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
+                            onDismissRequest = { menuExpanded = false },
+                            offset = DpOffset(0.dp, 4.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Delete night") },
+                                text = { Text(stringResource(R.string.insights_export_night)) },
+                                leadingIcon = { Icon(Icons.Outlined.FolderZip, contentDescription = null) },
+                                enabled = sessionState.audioExport == null && night.episodeCount > 0,
+                                onClick = {
+                                    menuExpanded = false
+                                    onSessionAction(SessionInsightsAction.OnExportNight)
+                                }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.insights_delete_night)) },
+                                leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
+                                colors = MenuDefaults.itemColors(
+                                    textColor = MaterialTheme.colorScheme.error,
+                                    leadingIconColor = MaterialTheme.colorScheme.error
+                                ),
+                                enabled = sessionState.audioExport?.nightDate != night.date,
                                 onClick = {
                                     menuExpanded = false
                                     onSessionAction(SessionInsightsAction.OnRequestDeleteNight)
@@ -234,6 +315,23 @@ fun InsightsScreen(
                         }
                     }
                 }
+            }
+        }
+
+        if (state.selectedTab == InsightsTab.Session &&
+            sessionState.audioExport?.stage == AudioExportStage.Saving &&
+            sessionState.audioExport.format == AudioExportFormat.Zip
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.insights_export_in_progress),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
 
@@ -434,6 +532,7 @@ fun SessionInsightsScreen(
                         sessionIndex = index + 1,
                         sessionWithEpisodes = sessionWithEpisodes,
                         isCollapsed = isCollapsed,
+                        canSaveClips = state.audioExport == null && !state.isDeletingNight,
                         expandedEpisodeIds = state.expandedEpisodeIds,
                         waveformsByPath = state.waveformsByPath,
                         waveformViewport = waveformViewport,
@@ -456,6 +555,7 @@ private fun RecordingSessionCard(
     sessionIndex: Int,
     sessionWithEpisodes: RecordingSessionWithEpisodes,
     isCollapsed: Boolean,
+    canSaveClips: Boolean,
     expandedEpisodeIds: Set<String>,
     waveformsByPath: Map<String, ClipWaveform>,
     waveformViewport: LayoutBoundsHolder,
@@ -584,6 +684,7 @@ private fun RecordingSessionCard(
                                     waveform = episode.filePath?.let(waveformsByPath::get),
                                     waveformViewport = waveformViewport,
                                     isSpansExpanded = episode.episodeId in expandedEpisodeIds,
+                                    canSaveClip = canSaveClips,
                                     onAction = onAction
                                 )
                             }
@@ -602,6 +703,7 @@ private fun SleepEpisodeItem(
     waveform: ClipWaveform?,
     waveformViewport: LayoutBoundsHolder,
     isSpansExpanded: Boolean,
+    canSaveClip: Boolean,
     onAction: (SessionInsightsAction) -> Unit
 ) {
     val episode = episodeDetails.episode
@@ -670,12 +772,20 @@ private fun SleepEpisodeItem(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (isPlaying) {
                         ModernAudioEqualizer(isPlaying = true)
                     }
 
+                    if (hasAudioFile) {
+                        IconButton(
+                            enabled = canSaveClip,
+                            onClick = { onAction(SessionInsightsAction.OnSaveClip(episode.episodeId)) }
+                        ) {
+                            Icon(Icons.Outlined.Download, contentDescription = stringResource(R.string.insights_save_clip))
+                        }
+                    }
                     FilledTonalIconButton(
                         onClick = { onAction(SessionInsightsAction.OnTogglePlayback(episode)) },
                         enabled = hasAudioFile,
@@ -690,12 +800,11 @@ private fun SleepEpisodeItem(
                             } else {
                                 MaterialTheme.colorScheme.onPrimaryContainer
                             }
-                        ),
-                        modifier = Modifier.size(36.dp)
+                        )
                     ) {
                         val icon = if (isPlayRequested) Icons.Default.Pause else Icons.Default.PlayArrow
                         val contentDesc = if (isPlayRequested) "Pause audio" else "Play audio"
-                        Icon(icon, contentDescription = contentDesc, modifier = Modifier.size(18.dp))
+                        Icon(icon, contentDescription = contentDesc, modifier = Modifier.size(20.dp))
                     }
                 }
             }

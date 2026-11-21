@@ -4,9 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.example.snorelyzer.data.local.AudioExportDestination
+import com.example.snorelyzer.data.local.AudioExportFormat
+import com.example.snorelyzer.data.local.IncompleteAudioExportException
+import com.example.snorelyzer.data.local.RecordingAudioExport
 import com.example.snorelyzer.data.local.RecordingEpisodeEntity
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.data.local.SleepRecordingLocalDataSource
+import com.example.snorelyzer.data.local.discardFailedAudioExport
 import com.example.snorelyzer.ml.recording.readWavPeaks
 import java.io.File
 import java.io.IOException
@@ -16,10 +21,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,8 +44,17 @@ data class SessionInsightsState(
     val nightDeletionFailed: Boolean = false,
     val waveformsByPath: Map<String, ClipWaveform> = emptyMap(),
     val collapsedSessionIds: Set<String> = emptySet(),
-    val expandedEpisodeIds: Set<String> = emptySet()
+    val expandedEpisodeIds: Set<String> = emptySet(),
+    val audioExport: AudioExportState? = null
 )
+
+data class AudioExportState(
+    val nightDate: LocalDate,
+    val format: AudioExportFormat,
+    val stage: AudioExportStage
+)
+
+enum class AudioExportStage { CheckingAudio, ChoosingDestination, Saving }
 
 sealed interface ClipWaveform {
     data class Peaks(val values: List<Float>) : ClipWaveform
@@ -59,6 +75,10 @@ sealed interface SessionInsightsAction {
     data object OnRequestDeleteNight : SessionInsightsAction
     data object OnDismissDeleteNight : SessionInsightsAction
     data object OnConfirmDeleteNight : SessionInsightsAction
+    data class OnSaveClip(val episodeId: String) : SessionInsightsAction
+    data object OnExportNight : SessionInsightsAction
+    data class OnExportDestinationResult(val destination: AudioExportDestination?) : SessionInsightsAction
+    data object OnExportPickerUnavailable : SessionInsightsAction
     data object OnShowDatePicker : SessionInsightsAction
     data object OnDismissDatePicker : SessionInsightsAction
     data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
@@ -70,6 +90,13 @@ sealed interface SessionInsightsAction {
     data class OnToggleEpisodeSpans(val episodeId: String) : SessionInsightsAction
 }
 
+sealed interface SessionInsightsEvent {
+    data class ChooseExportDestination(val format: AudioExportFormat, val fileName: String) : SessionInsightsEvent
+    data class AudioSaved(val format: AudioExportFormat, val saved: Int, val skipped: Int) : SessionInsightsEvent
+    data object ExportAudioUnavailable : SessionInsightsEvent
+    data class ExportFailed(val incompleteFileMayRemain: Boolean = false) : SessionInsightsEvent
+}
+
 class SessionInsightsViewModel(
     private val localDataSource: SleepRecordingLocalDataSource,
     private val player: Player
@@ -77,12 +104,16 @@ class SessionInsightsViewModel(
     private val _state = MutableStateFlow(SessionInsightsState())
     val state: StateFlow<SessionInsightsState> = _state.asStateFlow()
 
+    private val _events = Channel<SessionInsightsEvent>(Channel.BUFFERED)
+    val events = _events.receiveAsFlow()
+
     private val _playback = MutableStateFlow<EpisodePlaybackState?>(null)
     val playback: StateFlow<EpisodePlaybackState?> = _playback.asStateFlow()
 
     private var isManualDateSelection = false
     private var positionUpdates: Job? = null
     private val waveformLoads = mutableMapOf<String, Job>()
+    private var pendingExport: RecordingAudioExport? = null
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -140,7 +171,9 @@ class SessionInsightsViewModel(
             SessionInsightsAction.OnRequestDeleteNight -> {
                 _state.update { current ->
                     val night = current.selectedNight
-                    if (night?.endedAtMillis != null && !current.isDeletingNight) {
+                    if (night?.endedAtMillis != null && !current.isDeletingNight &&
+                        current.audioExport?.nightDate != night.date
+                    ) {
                         current.copy(nightToDelete = night, nightDeletionFailed = false)
                     } else {
                         current
@@ -153,6 +186,15 @@ class SessionInsightsViewModel(
                 }
             }
             SessionInsightsAction.OnConfirmDeleteNight -> deleteNight()
+            is SessionInsightsAction.OnSaveClip -> requestAudioExport(action.episodeId)
+            SessionInsightsAction.OnExportNight -> requestAudioExport()
+            is SessionInsightsAction.OnExportDestinationResult -> saveAudioExport(action.destination)
+            SessionInsightsAction.OnExportPickerUnavailable -> {
+                if (_state.value.audioExport?.stage == AudioExportStage.ChoosingDestination) {
+                    clearAudioExport()
+                    _events.trySend(SessionInsightsEvent.ExportFailed())
+                }
+            }
             SessionInsightsAction.OnShowDatePicker -> {
                 _state.update { it.copy(isDatePickerVisible = it.availableDates.isNotEmpty()) }
             }
@@ -201,6 +243,83 @@ class SessionInsightsViewModel(
                 }
             }
         }
+    }
+
+    private fun requestAudioExport(episodeId: String? = null) {
+        val current = _state.value
+        val night = current.selectedNight ?: return
+        if (current.audioExport != null || current.nightToDelete?.date == night.date ||
+            current.isDeletingNight
+        ) return
+
+        val zoneId = ZoneId.systemDefault()
+        val export = if (episodeId == null) {
+            if (night.endedAtMillis == null) return
+            RecordingAudioExport.night(night, zoneId)
+        } else {
+            val episode = night.allEpisodes.firstOrNull { it.episode.episodeId == episodeId }?.episode ?: return
+            RecordingAudioExport.single(episode, zoneId)
+        }
+        pendingExport = export
+        _state.update { it.copy(audioExport = AudioExportState(night.date, export.format, AudioExportStage.CheckingAudio)) }
+        viewModelScope.launch {
+            try {
+                if (export.hasAvailableAudio()) {
+                    updateAudioExportStage(AudioExportStage.ChoosingDestination)
+                    _events.send(SessionInsightsEvent.ChooseExportDestination(export.format, export.fileName))
+                } else {
+                    clearAudioExport()
+                    _events.send(SessionInsightsEvent.ExportAudioUnavailable)
+                }
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (_: Exception) {
+                clearAudioExport()
+                _events.send(SessionInsightsEvent.ExportFailed())
+            }
+        }
+    }
+
+    private fun saveAudioExport(destination: AudioExportDestination?) {
+        val export = pendingExport
+        if (export == null) {
+            // A picker result may be restored after the original process was killed.
+            if (destination != null) viewModelScope.launch {
+                val discarded = discardFailedAudioExport(destination)
+                _events.send(SessionInsightsEvent.ExportFailed(incompleteFileMayRemain = !discarded))
+            }
+            return
+        }
+        if (_state.value.audioExport?.stage != AudioExportStage.ChoosingDestination) return
+        if (destination == null) {
+            clearAudioExport()
+            return
+        }
+
+        updateAudioExportStage(AudioExportStage.Saving)
+        viewModelScope.launch {
+            val feedback = try {
+                val saved = export.saveTo(destination)
+                if (saved == 0) SessionInsightsEvent.ExportAudioUnavailable
+                else SessionInsightsEvent.AudioSaved(export.format, saved, export.clipCount - saved)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                SessionInsightsEvent.ExportFailed(incompleteFileMayRemain = exception is IncompleteAudioExportException)
+            } finally {
+                clearAudioExport()
+            }
+            _events.send(feedback)
+        }
+    }
+
+    private fun updateAudioExportStage(stage: AudioExportStage) {
+        _state.update { it.copy(audioExport = it.audioExport?.copy(stage = stage)) }
+    }
+
+    private fun clearAudioExport() {
+        pendingExport = null
+        _state.update { it.copy(audioExport = null) }
     }
 
     private fun togglePlayback(episode: RecordingEpisodeEntity) {
@@ -301,7 +420,7 @@ class SessionInsightsViewModel(
     private fun deleteNight() {
         val current = _state.value
         val night = current.nightToDelete ?: return
-        if (current.isDeletingNight) return
+        if (current.isDeletingNight || current.audioExport?.nightDate == night.date) return
 
         _state.update { it.copy(isDeletingNight = true, nightDeletionFailed = false) }
         viewModelScope.launch {

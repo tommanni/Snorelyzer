@@ -6,7 +6,7 @@
     <string name="record_setup_placement">Place your phone near your bed, with the microphone uncovered.</string>
     <string name="record_setup_power">Keep your phone plugged in for overnight tracking.</string>
     <string name="record_start_tracking">Start Tracking</string>
-    <string name="record_privacy">Sound analysis happens on your phone. Your recordings stay on this device.</string>
+    <string name="record_privacy">Sound analysis happens on your phone. Your recordings stay on this device unless you export them.</string>
     <string name="sleep_tracker_channel">Sleep Tracker</string>
     <string name="sleep_tracker_active">Sleep Tracker Active</string>
     <string name="record_waiting_for_microphone">Waiting for microphone…</string>
@@ -19,4 +19,18 @@
     <string name="insights_clip_position">%1$s of %2$s</string>
     <string name="insights_audio_missing">Audio file unavailable</string>
     <string name="insights_audio_playback_failed">Couldn’t play this clip</string>
+    <string name="insights_save_clip">Save clip</string>
+    <string name="insights_night_options">Night options</string>
+    <string name="insights_export_night">Export all clips</string>
+    <string name="insights_delete_night">Delete night</string>
+    <string name="insights_export_in_progress">Exporting clips…</string>
+    <string name="insights_clip_saved">Clip saved</string>
+    <plurals name="insights_clips_exported">
+        <item quantity="one">Exported %d clip</item>
+        <item quantity="other">Exported %d clips</item>
+    </plurals>
+    <string name="insights_export_partial">Night export saved. %1$d clips saved, %2$d unavailable.</string>
+    <string name="insights_export_audio_unavailable">No audio files are available to save.</string>
+    <string name="insights_export_failed">Couldn’t save audio. Try again.</string>
+    <string name="insights_export_incomplete_file">Couldn’t finish saving audio. An incomplete file may be in the selected location.</string>
 </resources>
