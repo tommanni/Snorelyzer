@@ -71,7 +71,7 @@ internal fun HoldToStopTrackingButton(
                                 progress.animateTo(
                                     targetValue = 1f,
                                     animationSpec = tween(
-                                        durationMillis = StopTrackingHoldDurationMillis,
+                                        durationMillis = StopTrackingHoldDurationSeconds * 1_000,
                                         easing = LinearEasing
                                     )
                                 )
@@ -111,11 +111,11 @@ internal fun HoldToStopTrackingButton(
 }
 
 private fun Float.toCountdownLabel(): String {
-    return (3 - (this * 3).toInt())
-        .coerceIn(1, 3)
+    return (StopTrackingHoldDurationSeconds - (this * StopTrackingHoldDurationSeconds).toInt())
+        .coerceAtLeast(1)
         .toString()
 }
 
-private const val StopTrackingHoldDurationMillis = 3_000
+private const val StopTrackingHoldDurationSeconds = 2
 internal const val StopTrackingHoldButtonTag = "stop_tracking_hold_button"
 internal const val StopTrackingHoldProgressTag = "stop_tracking_hold_progress"

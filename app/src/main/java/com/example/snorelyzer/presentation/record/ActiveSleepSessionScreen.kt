@@ -255,25 +255,11 @@ fun ActiveSleepSessionScreen(
             }
         }
 
-        // Stop Action Section
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            HoldToStopTrackingButton(
-                onStopTracking = { onAction(RecordAction.OnStopClick) },
-                resetKey = state.stopTrackingHoldResetKey,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Text(
-                text = "Hold for 3 seconds to complete your session",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                textAlign = TextAlign.Center
-            )
-        }
+        HoldToStopTrackingButton(
+            onStopTracking = { onAction(RecordAction.OnStopClick) },
+            resetKey = state.stopTrackingHoldResetKey,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 
     if (state.showShortSessionDialog) {

@@ -105,9 +105,6 @@ class ActiveSleepSessionScreenTest {
         }
         composeRule.mainClock.advanceTimeByFrame()
 
-        composeRule.onNodeWithText("3").assertIsDisplayed()
-
-        composeRule.mainClock.advanceTimeBy(1_000)
         composeRule.onNodeWithText("2").assertIsDisplayed()
 
         composeRule.mainClock.advanceTimeBy(1_000)
@@ -136,7 +133,7 @@ class ActiveSleepSessionScreenTest {
             down(center)
         }
         composeRule.mainClock.advanceTimeByFrame()
-        composeRule.mainClock.advanceTimeBy(2_000)
+        composeRule.mainClock.advanceTimeBy(1_900)
         composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
             up()
         }
@@ -148,7 +145,7 @@ class ActiveSleepSessionScreenTest {
     }
 
     @Test
-    fun holdingStopTrackingForThreeSecondsDispatchesStopActionOnce() {
+    fun holdingStopTrackingForTwoSecondsDispatchesStopActionOnce() {
         val actions = mutableListOf<RecordAction>()
         composeRule.mainClock.autoAdvance = false
         composeRule.setContent {
@@ -164,7 +161,7 @@ class ActiveSleepSessionScreenTest {
             down(center)
         }
         composeRule.mainClock.advanceTimeByFrame()
-        composeRule.mainClock.advanceTimeBy(3_100)
+        composeRule.mainClock.advanceTimeBy(2_100)
         composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
             up()
         }
@@ -246,7 +243,7 @@ class ActiveSleepSessionScreenTest {
             down(center)
         }
         composeRule.mainClock.advanceTimeByFrame()
-        composeRule.mainClock.advanceTimeBy(3_100)
+        composeRule.mainClock.advanceTimeBy(2_100)
         composeRule.onNodeWithTag(StopTrackingHoldButtonTag).performTouchInput {
             up()
         }
