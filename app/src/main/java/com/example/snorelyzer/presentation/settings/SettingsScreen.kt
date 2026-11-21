@@ -27,8 +27,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.snorelyzer.R
+import com.example.snorelyzer.presentation.AppSnackbarVisuals
+import com.example.snorelyzer.presentation.SnackbarTone
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import org.koin.androidx.compose.koinViewModel
 
@@ -45,13 +47,13 @@ internal fun SettingsRoot(
     viewModel: SettingsViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val deletionMessage by rememberUpdatedState(stringResource(R.string.settings_delete_success))
 
-    LaunchedEffect(viewModel.events) {
+    LaunchedEffect(viewModel.events, snackbarHostState) {
         viewModel.events.collect { event ->
             when (event) {
                 SettingsEvent.AllDataDeleted -> snackbarHostState.showSnackbar(
-                    context.getString(R.string.settings_delete_success)
+                    AppSnackbarVisuals(deletionMessage, SnackbarTone.Success)
                 )
             }
         }

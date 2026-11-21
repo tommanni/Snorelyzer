@@ -25,8 +25,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -126,8 +124,7 @@ fun SnorelyzerApp(
     val showRecordingDiscardedMessage: () -> Unit = {
         snackbarScope.launch {
             snackbarHostState.showSnackbar(
-                message = "Discarded successfully",
-                duration = SnackbarDuration.Short
+                AppSnackbarVisuals("Discarded successfully", SnackbarTone.Success)
             )
         }
     }
@@ -278,7 +275,7 @@ fun SnorelyzerApp(
                     }
                 }
             }
-            SnackbarHost(
+            AppSnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .align(Alignment.TopCenter)

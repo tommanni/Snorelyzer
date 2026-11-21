@@ -2,7 +2,6 @@ package com.example.snorelyzer.presentation.settings
 
 import android.content.ContextWrapper
 import androidx.compose.foundation.layout.Box
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -25,6 +24,7 @@ import com.example.snorelyzer.data.local.SnorelyzerDatabase
 import com.example.snorelyzer.ml.recording.AudioEventRecorder
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import com.example.snorelyzer.ml.recording.WavAudioClipWriter
+import com.example.snorelyzer.presentation.AppSnackbarHost
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import java.io.File
 import java.nio.file.Files
@@ -75,7 +75,7 @@ class SettingsDeletionTest {
                     val snackbarHostState = remember { SnackbarHostState() }
                     Box {
                         SettingsRoot(snackbarHostState = snackbarHostState, viewModel = viewModel)
-                        SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+                        AppSnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
                     }
                 }
             }

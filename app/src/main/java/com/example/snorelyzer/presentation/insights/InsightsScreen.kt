@@ -84,6 +84,7 @@ import androidx.compose.ui.layout.LayoutBoundsHolder
 import androidx.compose.ui.layout.layoutBounds
 import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -101,6 +102,8 @@ import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
+import com.example.snorelyzer.presentation.AppSnackbarVisuals
+import com.example.snorelyzer.presentation.SnackbarTone
 import org.koin.androidx.compose.koinViewModel
 import java.time.Instant
 import java.time.LocalDate
@@ -122,15 +125,16 @@ fun InsightsRoot(
     val playback = sessionViewModel.playback.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+    val resources = LocalResources.current
     val onExportResult: (Uri?) -> Unit = { uri ->
         val destination = uri?.let { DocumentAudioExportDestination(context.applicationContext.contentResolver, it) }
         sessionViewModel.onAction(SessionInsightsAction.OnExportDestinationResult(destination))
     }
     val saveWav = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav"), onExportResult)
     val saveZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip"), onExportResult)
-    LaunchedEffect(sessionViewModel.events, context, snackbarHostState) {
+    LaunchedEffect(sessionViewModel.events, resources, snackbarHostState) {
         sessionViewModel.events.collect { event ->
-            val message = when (event) {
+            val snackbar = when (event) {
                 is SessionInsightsEvent.ChooseExportDestination -> {
                     val launcher = when (event.format) {
                         AudioExportFormat.Wav -> saveWav
@@ -145,18 +149,28 @@ fun InsightsRoot(
                     }
                     null
                 }
-                is SessionInsightsEvent.AudioSaved -> when {
-                    event.format == AudioExportFormat.Wav -> context.getString(R.string.insights_clip_saved)
-                    event.skipped > 0 -> context.getString(R.string.insights_export_partial, event.saved, event.skipped)
-                    else -> context.resources.getQuantityString(R.plurals.insights_clips_exported, event.saved, event.saved)
+                is SessionInsightsEvent.AudioSaved -> {
+                    val message = when {
+                        event.format == AudioExportFormat.Wav -> resources.getString(R.string.insights_clip_saved)
+                        event.skipped > 0 -> resources.getString(R.string.insights_export_partial, event.saved, event.skipped)
+                        else -> resources.getQuantityString(R.plurals.insights_clips_exported, event.saved, event.saved)
+                    }
+                    val tone = if (event.skipped > 0) SnackbarTone.Warning else SnackbarTone.Success
+                    AppSnackbarVisuals(message, tone)
                 }
-                SessionInsightsEvent.ExportAudioUnavailable -> context.getString(R.string.insights_export_audio_unavailable)
-                is SessionInsightsEvent.ExportFailed -> context.getString(
-                    if (event.incompleteFileMayRemain) R.string.insights_export_incomplete_file
-                    else R.string.insights_export_failed
+                SessionInsightsEvent.ExportAudioUnavailable -> AppSnackbarVisuals(
+                    resources.getString(R.string.insights_export_audio_unavailable),
+                    SnackbarTone.Warning
+                )
+                is SessionInsightsEvent.ExportFailed -> AppSnackbarVisuals(
+                    resources.getString(
+                        if (event.incompleteFileMayRemain) R.string.insights_export_incomplete_file
+                        else R.string.insights_export_failed
+                    ),
+                    SnackbarTone.Error
                 )
             }
-            if (message != null) launch { snackbarHostState.showSnackbar(message) }
+            if (snackbar != null) launch { snackbarHostState.showSnackbar(snackbar) }
         }
     }
 
