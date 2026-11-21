@@ -59,20 +59,27 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.LayoutBoundsHolder
+import androidx.compose.ui.layout.layoutBounds
+import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.snorelyzer.R
 import com.example.snorelyzer.data.local.EventSpanEntity
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
@@ -94,6 +101,7 @@ fun InsightsRoot(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     val sessionState by sessionViewModel.state.collectAsStateWithLifecycle()
+    val playback = sessionViewModel.playback.collectAsStateWithLifecycle()
 
     DisposableEffect(state.selectedTab, sessionViewModel) {
         onDispose { sessionViewModel.onAction(SessionInsightsAction.OnStopPlayback) }
@@ -107,7 +115,8 @@ fun InsightsRoot(
         state = state,
         onAction = viewModel::onAction,
         sessionState = sessionState,
-        onSessionAction = sessionViewModel::onAction
+        onSessionAction = sessionViewModel::onAction,
+        playback = remember(playback) { { playback.value } }
     )
 }
 
@@ -116,7 +125,8 @@ fun InsightsScreen(
     state: InsightsState,
     onAction: (InsightsAction) -> Unit,
     sessionState: SessionInsightsState,
-    onSessionAction: (SessionInsightsAction) -> Unit
+    onSessionAction: (SessionInsightsAction) -> Unit,
+    playback: () -> EpisodePlaybackState? = { null }
 ) {
     if (state.selectedTab == InsightsTab.Session && sessionState.isDatePickerVisible &&
         sessionState.availableDates.isNotEmpty()
@@ -237,7 +247,8 @@ fun InsightsScreen(
                 InsightsTab.Session -> SessionInsightsScreen(
                     state = sessionState,
                     onAction = onSessionAction,
-                    modifier = Modifier.testTag(SessionInsightsContentTag)
+                    modifier = Modifier.testTag(SessionInsightsContentTag),
+                    playback = playback
                 )
                 InsightsTab.Analytics -> AnalyticsInsightsRoot(
                     modifier = Modifier.testTag(AnalyticsInsightsContentTag)
@@ -340,7 +351,8 @@ private fun InsightsPlaceholder(
 fun SessionInsightsScreen(
     state: SessionInsightsState,
     onAction: (SessionInsightsAction) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    playback: () -> EpisodePlaybackState? = { null }
 ) {
     if (state.isLoading) {
         Box(
@@ -366,8 +378,9 @@ fun SessionInsightsScreen(
     ) {
         val selectedNight = state.selectedNight
         if (selectedNight != null) {
+            val waveformViewport = remember { LayoutBoundsHolder() }
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().layoutBounds(waveformViewport),
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -421,18 +434,11 @@ fun SessionInsightsScreen(
                         sessionIndex = index + 1,
                         sessionWithEpisodes = sessionWithEpisodes,
                         isCollapsed = isCollapsed,
-                        playingEpisodeId = state.playingEpisodeId,
-                        isPlayerPlaying = state.isPlayerPlaying,
                         expandedEpisodeIds = state.expandedEpisodeIds,
-                        onToggleCollapse = {
-                            onAction(SessionInsightsAction.OnToggleSessionCollapse(sessionWithEpisodes.session.sessionId))
-                        },
-                        onTogglePlayEpisode = { episodeId, filePath ->
-                            onAction(SessionInsightsAction.OnTogglePlayback(episodeId = episodeId, filePath = filePath))
-                        },
-                        onToggleEpisodeSpans = { episodeId ->
-                            onAction(SessionInsightsAction.OnToggleEpisodeSpans(episodeId))
-                        }
+                        waveformsByPath = state.waveformsByPath,
+                        waveformViewport = waveformViewport,
+                        playback = playback,
+                        onAction = onAction
                     )
                 }
             }
@@ -450,12 +456,11 @@ private fun RecordingSessionCard(
     sessionIndex: Int,
     sessionWithEpisodes: RecordingSessionWithEpisodes,
     isCollapsed: Boolean,
-    playingEpisodeId: String?,
-    isPlayerPlaying: Boolean,
     expandedEpisodeIds: Set<String>,
-    onToggleCollapse: () -> Unit,
-    onTogglePlayEpisode: (String, String) -> Unit,
-    onToggleEpisodeSpans: (String) -> Unit,
+    waveformsByPath: Map<String, ClipWaveform>,
+    waveformViewport: LayoutBoundsHolder,
+    playback: () -> EpisodePlaybackState?,
+    onAction: (SessionInsightsAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val session = sessionWithEpisodes.session
@@ -465,6 +470,7 @@ private fun RecordingSessionCard(
 
     val startTimeStr = formatTimestamp(session.startedAtMillis, "hh:mm a")
     val endTimeStr = if (session.endedAtMillis != null) formatTimestamp(session.endedAtMillis, "hh:mm a") else "Ongoing"
+    val onToggleCollapse = { onAction(SessionInsightsAction.OnToggleSessionCollapse(session.sessionId)) }
 
     OutlinedCard(
         modifier = modifier
@@ -570,23 +576,17 @@ private fun RecordingSessionCard(
                         )
                     } else {
                         episodes.forEach { episodeDetails ->
-                            val isActiveEpisode = playingEpisodeId == episodeDetails.episode.episodeId
-                            val isPlaying = isActiveEpisode && isPlayerPlaying
-                            val isSpansExpanded = expandedEpisodeIds.contains(episodeDetails.episode.episodeId)
-
-                            SleepEpisodeItem(
-                                episodeDetails = episodeDetails,
-                                isPlaying = isPlaying,
-                                onTogglePlayClick = {
-                                    episodeDetails.episode.filePath?.let { filePath ->
-                                        onTogglePlayEpisode(episodeDetails.episode.episodeId, filePath)
-                                    }
-                                },
-                                isSpansExpanded = isSpansExpanded,
-                                onToggleSpansClick = {
-                                    onToggleEpisodeSpans(episodeDetails.episode.episodeId)
-                                }
-                            )
+                            val episode = episodeDetails.episode
+                            key(episode.episodeId) {
+                                SleepEpisodeItem(
+                                    episodeDetails = episodeDetails,
+                                    playback = playback,
+                                    waveform = episode.filePath?.let(waveformsByPath::get),
+                                    waveformViewport = waveformViewport,
+                                    isSpansExpanded = episode.episodeId in expandedEpisodeIds,
+                                    onAction = onAction
+                                )
+                            }
                         }
                     }
                 }
@@ -596,22 +596,29 @@ private fun RecordingSessionCard(
 }
 
 @Composable
-fun SleepEpisodeItem(
+private fun SleepEpisodeItem(
     episodeDetails: RecordingEpisodeWithDetails,
-    isPlaying: Boolean,
-    onTogglePlayClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    isSpansExpanded: Boolean = false,
-    onToggleSpansClick: () -> Unit = {}
+    playback: () -> EpisodePlaybackState?,
+    waveform: ClipWaveform?,
+    waveformViewport: LayoutBoundsHolder,
+    isSpansExpanded: Boolean,
+    onAction: (SessionInsightsAction) -> Unit
 ) {
     val episode = episodeDetails.episode
-    val startTime = formatTimestamp(episode.clipStartMillis, "hh:mm:ss a")
-    val durationSec = (episode.durationMillis / 1000.0).let { String.format(Locale.US, "%.1f", it) }
-    val hasAudioFile = episode.filePath != null
+    val clipPlayback by remember(episode.episodeId, playback) {
+        derivedStateOf { playback()?.takeIf { it.episodeId == episode.episodeId } }
+    }
+    val isPlaying = clipPlayback?.isPlaying == true
+    val isPlayRequested = clipPlayback?.isPlayRequested == true
+    val startTime = remember(episode.clipStartMillis) { formatTimestamp(episode.clipStartMillis, "hh:mm:ss a") }
+    val durationMillis = clipPlayback?.durationMillis ?: episode.durationMillis
+    val isAudioMissing = waveform == ClipWaveform.MissingFile
+    val hasAudioFile = episode.filePath != null && !isAudioMissing
+    val showWaveform = hasAudioFile && durationMillis > 0L
     val eventSpans = episodeDetails.eventSpans
 
     Card(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
         shape = RoundedCornerShape(12.dp),
@@ -644,16 +651,19 @@ fun SleepEpisodeItem(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Text(
-                                text = "${durationSec}s",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
+                        if (!showWaveform) {
+                            val durationSec = String.format(Locale.US, "%.1f", episode.durationMillis / 1000.0)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
+                                Text(
+                                    text = "${durationSec}s",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -667,15 +677,15 @@ fun SleepEpisodeItem(
                     }
 
                     FilledTonalIconButton(
-                        onClick = onTogglePlayClick,
+                        onClick = { onAction(SessionInsightsAction.OnTogglePlayback(episode)) },
                         enabled = hasAudioFile,
                         colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = if (isPlaying) {
+                            containerColor = if (isPlayRequested) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.primaryContainer
                             },
-                            contentColor = if (isPlaying) {
+                            contentColor = if (isPlayRequested) {
                                 MaterialTheme.colorScheme.onPrimary
                             } else {
                                 MaterialTheme.colorScheme.onPrimaryContainer
@@ -683,11 +693,39 @@ fun SleepEpisodeItem(
                         ),
                         modifier = Modifier.size(36.dp)
                     ) {
-                        val icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
-                        val contentDesc = if (isPlaying) "Pause audio" else "Play audio"
+                        val icon = if (isPlayRequested) Icons.Default.Pause else Icons.Default.PlayArrow
+                        val contentDesc = if (isPlayRequested) "Pause audio" else "Play audio"
                         Icon(icon, contentDescription = contentDesc, modifier = Modifier.size(18.dp))
                     }
                 }
+            }
+
+            if (showWaveform) {
+                EpisodeWaveform(
+                    peaks = (waveform as? ClipWaveform.Peaks)?.values,
+                    durationMillis = durationMillis,
+                    positionMillis = clipPlayback?.positionMillis ?: 0L,
+                    onSeek = { onAction(SessionInsightsAction.OnSeekPlayback(episode, it)) },
+                    modifier = if (waveform == null) {
+                        Modifier.onVisibilityChanged(
+                            minDurationMs = 100L,
+                            minFractionVisible = 0.5f,
+                            viewportBounds = waveformViewport
+                        ) { isVisible ->
+                            if (isVisible) onAction(SessionInsightsAction.OnWaveformVisible(episode.filePath))
+                        }
+                    } else Modifier
+                )
+            }
+
+            if (isAudioMissing || clipPlayback?.hasError == true) {
+                Text(
+                    text = stringResource(
+                        if (isAudioMissing) R.string.insights_audio_missing else R.string.insights_audio_playback_failed
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
 
             // Detected group chips
@@ -709,7 +747,7 @@ fun SleepEpisodeItem(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(onClick = onToggleSpansClick),
+                        .clickable { onAction(SessionInsightsAction.OnToggleEpisodeSpans(episode.episodeId)) },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -966,7 +1004,8 @@ private fun SessionInsightsScreenDarkPreview() {
         Surface {
             SessionInsightsScreen(
                 state = previewSampleState,
-                onAction = {}
+                onAction = {},
+                playback = { previewPlayback }
             )
         }
     }
@@ -979,7 +1018,8 @@ private fun SessionInsightsScreenLightPreview() {
         Surface {
             SessionInsightsScreen(
                 state = previewSampleState,
-                onAction = {}
+                onAction = {},
+                playback = { previewPlayback }
             )
         }
     }
@@ -1078,11 +1118,18 @@ private val previewSampleState: SessionInsightsState by lazy {
         selectedNightAnalytics = analytics,
         availableDates = setOf(date, date.minusDays(1), date.minusDays(2)),
         isLoading = false,
-        playingEpisodeId = "ep-1",
-        isPlayerPlaying = true,
+        waveformsByPath = mapOf("/fake/path/audio1.wav" to ClipWaveform.Peaks(previewWaveformPeaks)),
         expandedEpisodeIds = setOf("ep-1")
     )
 }
+
+private val previewPlayback = EpisodePlaybackState(
+    episodeId = "ep-1",
+    positionMillis = 5_000L,
+    durationMillis = 12_000L,
+    isPlaying = true,
+    isPlayRequested = true
+)
 
 @androidx.compose.ui.tooling.preview.Preview(name = "Insights - Light")
 @androidx.compose.ui.tooling.preview.Preview(
@@ -1097,7 +1144,8 @@ private fun InsightsScreenPreview() {
                 state = InsightsState(),
                 onAction = {},
                 sessionState = previewSampleState,
-                onSessionAction = {}
+                onSessionAction = {},
+                playback = { previewPlayback }
             )
         }
     }

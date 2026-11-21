@@ -15,4 +15,8 @@
     <string name="record_reconnecting_microphone">Reconnecting microphone…</string>
     <string name="record_interrupted_at">Sleep recording ended early at %1$s.</string>
     <string name="record_save_failed">Some recordings couldn’t be saved.</string>
+    <string name="insights_seek_clip">Seek audio clip</string>
+    <string name="insights_clip_position">%1$s of %2$s</string>
+    <string name="insights_audio_missing">Audio file unavailable</string>
+    <string name="insights_audio_playback_failed">Couldn’t play this clip</string>
 </resources>
