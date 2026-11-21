@@ -4,10 +4,13 @@ import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import java.time.ZoneId
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -39,7 +42,28 @@ class RoomRecordingMetadataSinkTest {
         assertEquals(endedSession, completedSession)
     }
 
-    private class FailingEpisodeDataSource : SleepRecordingLocalDataSource {
+    @Test
+    fun cleanupWaitsForPendingSessionWrites() = runBlocking {
+        val allowWrite = CompletableDeferred<Unit>()
+        val dataSource = FailingEpisodeDataSource(beforeComplete = { allowWrite.await() })
+        val sink = RoomRecordingMetadataSink(dataSource)
+        val session = RecordingSessionMetadata(sessionId = "session-0", startedAtMillis = 0L, endedAtMillis = 5_000L)
+        sink.onSessionCompleted(session) { error("Unexpected session completion failure") }
+
+        val cleanup = async(start = CoroutineStart.UNDISPATCHED) {
+            sink.afterPendingWrites { assertTrue(dataSource.completedSession.isCompleted) }
+        }
+        try {
+            assertFalse(cleanup.isCompleted)
+        } finally {
+            allowWrite.complete(Unit)
+        }
+        withTimeout(5_000L) { cleanup.await() }
+    }
+
+    private class FailingEpisodeDataSource(
+        private val beforeComplete: suspend () -> Unit = {}
+    ) : SleepRecordingLocalDataSource {
         val completedSession = CompletableDeferred<RecordingSessionMetadata>()
 
         override suspend fun upsertSession(session: RecordingSessionMetadata) = Unit
@@ -49,6 +73,7 @@ class RoomRecordingMetadataSinkTest {
         }
 
         override suspend fun completeSession(session: RecordingSessionMetadata) {
+            beforeComplete()
             completedSession.complete(session)
         }
 

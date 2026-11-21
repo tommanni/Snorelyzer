@@ -28,7 +28,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
@@ -42,9 +41,6 @@ class SleepTrackerService : Service() {
         private const val CHANNEL_ID = "sleep_tracker_channel"
         private const val NOTIFICATION_ID = 1
         private const val RECOVERY_WAKE_LOCK_TIMEOUT_MILLIS = 6 * 60_000L
-
-        // A new service instance may start while the previous instance finishes saving.
-        private val sessionMutex = Mutex()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -78,7 +74,7 @@ class SleepTrackerService : Service() {
         processingJob = scope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    sessionMutex.withLock { trackSession() }
+                    sessionController.sessionMutex.withLock { trackSession() }
                 }
             } finally {
                 if (!destroyed) stopSelf()

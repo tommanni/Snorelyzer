@@ -15,6 +15,16 @@
     <string name="record_reconnecting_microphone">Reconnecting microphone…</string>
     <string name="record_interrupted_at">Sleep recording ended early at %1$s.</string>
     <string name="record_save_failed">Some recordings couldn’t be saved.</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_data_management">Data management</string>
+    <string name="settings_delete_all_data">Delete all data</string>
+    <string name="settings_delete_title">Delete all data?</string>
+    <string name="settings_delete_warning">This permanently deletes all sleep history, audio recordings, and detected events stored by this app on this device.</string>
+    <string name="settings_delete_cancel">Cancel</string>
+    <string name="settings_delete_in_progress">Deleting…</string>
+    <string name="settings_delete_recording_active">Wait for sleep tracking to finish, then try again.</string>
+    <string name="settings_delete_failed">Couldn’t delete all data. Try again.</string>
+    <string name="settings_delete_success">All Snorelyzer data deleted.</string>
     <string name="insights_seek_clip">Seek audio clip</string>
     <string name="insights_clip_position">%1$s of %2$s</string>
     <string name="insights_audio_missing">Audio file unavailable</string>

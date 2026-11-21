@@ -35,8 +35,11 @@ class SnorelyzerNavigationTest {
         composeRule.onNodeWithText("Session insights content will appear here.").assertIsDisplayed()
 
         composeRule.onNodeWithText("Settings").performClick()
-        composeRule.onNodeWithText("Profile").assertIsDisplayed()
-        composeRule.onNodeWithText("Privacy policy").assertIsDisplayed()
+        composeRule.onNodeWithText("Data management").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Profile").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Recording preferences").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Privacy policy").assertCountEquals(0)
+        composeRule.onAllNodesWithText("About Snorelyzer").assertCountEquals(0)
 
         composeRule.onNodeWithText("Record").performClick()
         composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()

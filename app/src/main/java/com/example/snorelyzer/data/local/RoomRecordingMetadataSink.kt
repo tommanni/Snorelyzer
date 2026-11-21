@@ -43,6 +43,10 @@ class RoomRecordingMetadataSink(
         }
     }
 
+    internal suspend fun afterPendingWrites(block: suspend () -> Unit) {
+        persistenceMutex.withLock { block() }
+    }
+
     private fun persist(
         errorMessage: String,
         onFailure: () -> Unit,

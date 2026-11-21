@@ -1,6 +1,7 @@
 package com.example.snorelyzer.data.local
 
 import android.content.Context
+import java.io.IOException
 
 internal class RecordingInterruptionStore(context: Context) {
     private val preferences = context.getSharedPreferences("recording_status", Context.MODE_PRIVATE)
@@ -16,6 +17,12 @@ internal class RecordingInterruptionStore(context: Context) {
             }
             edit.apply()
         }
+
+    fun clear() {
+        if (!preferences.edit().remove(INTERRUPTED_AT).commit()) {
+            throw IOException("Could not clear recording interruption status")
+        }
+    }
 
     private companion object {
         const val INTERRUPTED_AT = "interrupted_at_millis"

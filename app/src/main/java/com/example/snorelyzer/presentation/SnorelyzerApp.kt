@@ -53,6 +53,7 @@ import com.example.snorelyzer.SleepTrackingSessionState
 import com.example.snorelyzer.presentation.insights.InsightsRoot
 import com.example.snorelyzer.presentation.record.ActiveSleepSessionRoot
 import com.example.snorelyzer.presentation.record.RecordRoot
+import com.example.snorelyzer.presentation.settings.SettingsRoot
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -273,7 +274,7 @@ fun SnorelyzerApp(
                         InsightsRoot(snackbarHostState = snackbarHostState)
                     }
                     composable<SettingsRoute> {
-                        SettingsScreen()
+                        SettingsRoot(snackbarHostState = snackbarHostState)
                     }
                 }
             }

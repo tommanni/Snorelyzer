@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
 
 data class DetectedClassUi(
     val label: String,
@@ -38,6 +39,7 @@ class SleepTrackingSessionController(
     )
     override val state = _state.asStateFlow()
 
+    internal val sessionMutex = Mutex()
     private var audioProcessingPipeline: SleepAudioProcessor? = null
     private val saveStatusLock = Any()
     private var saveStatusSession: Any? = null
@@ -147,6 +149,13 @@ class SleepTrackingSessionController(
                     )
                 }
             }
+        }
+    }
+
+    internal fun clearRecordingStatus() {
+        synchronized(saveStatusLock) {
+            saveStatusSession = null
+            _state.value = SleepTrackingSessionState()
         }
     }
 

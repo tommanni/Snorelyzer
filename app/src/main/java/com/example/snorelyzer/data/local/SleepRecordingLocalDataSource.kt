@@ -66,6 +66,9 @@ class RoomSleepRecordingDataSource(
     }
 
     override suspend fun deleteAllSessions() {
+        if (!audioClipWriter.deleteAllClips()) {
+            throw IOException("Could not delete all recording audio")
+        }
         dao.deleteAllSessions()
     }
 
