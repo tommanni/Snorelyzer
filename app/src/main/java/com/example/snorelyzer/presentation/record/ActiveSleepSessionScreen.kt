@@ -1,6 +1,5 @@
 package com.example.snorelyzer.presentation.record
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -32,8 +31,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,6 +60,11 @@ fun ActiveSleepSessionRoot(
     viewModel: RecordViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var lastRunningState by remember { mutableStateOf<RecordState?>(null) }
+    if (state.isServiceRunning) {
+        val runningState = state
+        SideEffect { lastRunningState = runningState }
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -79,7 +85,11 @@ fun ActiveSleepSessionRoot(
     }
 
     ActiveSleepSessionScreen(
-        state = state,
+        state = if (state.isServiceRunning) {
+            state
+        } else {
+            lastRunningState?.copy(showShortSessionDialog = false) ?: state
+        },
         onAction = viewModel::onAction
     )
 }
@@ -89,8 +99,6 @@ fun ActiveSleepSessionScreen(
     state: RecordState,
     onAction: (RecordAction) -> Unit
 ) {
-    BackHandler(enabled = true) {}
-
     var currentTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.sessionStartedAtMillis) {
         while (true) {

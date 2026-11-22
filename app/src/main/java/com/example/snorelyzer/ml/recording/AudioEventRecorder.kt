@@ -67,14 +67,14 @@ data class RecordingEpisodeMetadata(
 interface RecordingMetadataSink {
     fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit)
     fun onEpisodeCompleted(episode: RecordingEpisodeMetadata, onFailure: () -> Unit)
-    fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit)
+    fun onSessionCompleted(session: RecordingSessionMetadata, onResult: (saved: Boolean) -> Unit)
     fun onSessionDiscarded(sessionId: String)
 }
 
 object NoOpRecordingMetadataSink : RecordingMetadataSink {
     override fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit) = Unit
     override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata, onFailure: () -> Unit) = Unit
-    override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) = Unit
+    override fun onSessionCompleted(session: RecordingSessionMetadata, onResult: (Boolean) -> Unit) = onResult(true)
     override fun onSessionDiscarded(sessionId: String) = Unit
 }
 
@@ -187,12 +187,18 @@ class AudioEventRecorder(
         rollingBuffer.reset()
     }
 
-    fun stopSession(endedAtMillis: Long) {
+    fun stopSession(endedAtMillis: Long, onResult: (saved: Boolean) -> Unit = {}) {
         closeActiveEpisode()
-        session = session?.copy(
+        val completedSession = session?.copy(
             endedAtMillis = endedAtMillis,
             completedEpisodeCount = completedEpisodes.size
-        )?.also { metadataSink.onSessionCompleted(it, onSaveFailure) }
+        ) ?: return onResult(false)
+        session = completedSession
+        val reportSaveFailure = onSaveFailure
+        metadataSink.onSessionCompleted(completedSession) { saved ->
+            if (!saved) reportSaveFailure()
+            onResult(saved)
+        }
     }
 
     fun discardSession() {

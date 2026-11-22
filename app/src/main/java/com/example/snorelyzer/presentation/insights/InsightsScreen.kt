@@ -95,6 +95,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.snorelyzer.R
+import com.example.snorelyzer.StoppedSessionSave
 import com.example.snorelyzer.data.local.AudioExportFormat
 import com.example.snorelyzer.data.local.DocumentAudioExportDestination
 import com.example.snorelyzer.data.local.EventSpanEntity
@@ -104,6 +105,7 @@ import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import com.example.snorelyzer.presentation.AppSnackbarVisuals
 import com.example.snorelyzer.presentation.SnackbarTone
+import com.example.snorelyzer.presentation.record.RecordingWarning
 import org.koin.androidx.compose.koinViewModel
 import java.time.Instant
 import java.time.LocalDate
@@ -116,6 +118,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun InsightsRoot(
     snackbarHostState: SnackbarHostState,
+    savedSession: StoppedSessionSave? = null,
+    showSaveWarning: Boolean = false,
     viewModel: InsightsViewModel = koinViewModel(),
     sessionViewModel: SessionInsightsViewModel = koinViewModel()
 ) {
@@ -123,6 +127,15 @@ fun InsightsRoot(
 
     val sessionState by sessionViewModel.state.collectAsStateWithLifecycle()
     val playback = sessionViewModel.playback.collectAsStateWithLifecycle()
+    val isOpeningSavedSession = savedSession != null && sessionState.openedSessionId != savedSession.sessionId
+    val visibleState = if (isOpeningSavedSession) InsightsState() else state
+
+    LaunchedEffect(savedSession, viewModel, sessionViewModel) {
+        if (savedSession != null) {
+            viewModel.onAction(InsightsAction.OnShowSavedSession(savedSession.sessionId))
+            sessionViewModel.onAction(SessionInsightsAction.OnShowSavedSession(savedSession))
+        }
+    }
 
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -174,20 +187,21 @@ fun InsightsRoot(
         }
     }
 
-    DisposableEffect(state.selectedTab, sessionViewModel) {
+    DisposableEffect(visibleState.selectedTab, sessionViewModel) {
         onDispose { sessionViewModel.onAction(SessionInsightsAction.OnStopPlayback) }
     }
 
-    BackHandler(enabled = state.selectedTab == InsightsTab.Analytics) {
+    BackHandler(enabled = visibleState.selectedTab == InsightsTab.Analytics) {
         viewModel.onAction(InsightsAction.OnTabSelected(InsightsTab.Session))
     }
 
     InsightsScreen(
-        state = state,
+        state = visibleState,
         onAction = viewModel::onAction,
-        sessionState = sessionState,
+        sessionState = if (isOpeningSavedSession) SessionInsightsState() else sessionState,
         onSessionAction = sessionViewModel::onAction,
-        playback = remember(playback) { { playback.value } }
+        playback = remember(playback) { { playback.value } },
+        showSaveWarning = showSaveWarning
     )
 }
 
@@ -197,7 +211,8 @@ fun InsightsScreen(
     onAction: (InsightsAction) -> Unit,
     sessionState: SessionInsightsState,
     onSessionAction: (SessionInsightsAction) -> Unit,
-    playback: () -> EpisodePlaybackState? = { null }
+    playback: () -> EpisodePlaybackState? = { null },
+    showSaveWarning: Boolean = false
 ) {
     if (state.selectedTab == InsightsTab.Session && sessionState.isDatePickerVisible &&
         sessionState.availableDates.isNotEmpty()
@@ -330,6 +345,11 @@ fun InsightsScreen(
                     }
                 }
             }
+        }
+
+        if (state.selectedTab == InsightsTab.Session && showSaveWarning) {
+            Spacer(Modifier.height(8.dp))
+            RecordingWarning(stringResource(R.string.record_save_failed))
         }
 
         if (state.selectedTab == InsightsTab.Session &&

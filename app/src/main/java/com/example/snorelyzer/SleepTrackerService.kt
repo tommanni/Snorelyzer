@@ -165,7 +165,8 @@ class SleepTrackerService : Service() {
                     sessionController.stopSession(
                         save = action != ACTION_STOP_DISCARD && (!interrupted || lastCapturedAtMillis != null),
                         endedAtMillis = endedAtMillis,
-                        interrupted = interrupted
+                        interrupted = interrupted,
+                        explicitlyRequestedSave = action == ACTION_STOP_SAVE
                     )
                 } finally {
                     if (interrupted) interruptionStore.interruptedAtMillis = endedAtMillis

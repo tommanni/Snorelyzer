@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.espresso.Espresso.pressBack
 import com.example.snorelyzer.MainActivity
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -44,6 +45,26 @@ class SnorelyzerNavigationTest {
         composeRule.onNodeWithText("Record").performClick()
         composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
         composeRule.onAllNodesWithText("Stop Tracking").assertCountEquals(0)
+    }
+
+    @Test
+    fun bottomTabsOverlapDuringCrossfadeAndKeepNavigationBarInPlace() {
+        val insightsTab = composeRule.onNodeWithText("Insights")
+        val tabBounds = insightsTab.fetchSemanticsNode().boundsInRoot
+        composeRule.mainClock.autoAdvance = false
+        try {
+            insightsTab.performClick()
+            composeRule.mainClock.advanceTimeBy(112)
+
+            composeRule.onNodeWithText("Start Tracking").assertIsDisplayed()
+            composeRule.onNodeWithText("Session").assertIsDisplayed()
+            assertEquals(tabBounds, insightsTab.fetchSemanticsNode().boundsInRoot)
+        } finally {
+            composeRule.mainClock.autoAdvance = true
+        }
+
+        composeRule.onAllNodesWithText("Start Tracking").assertCountEquals(0)
+        composeRule.onNodeWithText("Session").assertIsDisplayed()
     }
 
     @Test

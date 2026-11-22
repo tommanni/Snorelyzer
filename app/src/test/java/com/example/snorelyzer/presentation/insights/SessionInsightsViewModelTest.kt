@@ -1,6 +1,8 @@
 package com.example.snorelyzer.presentation.insights
 
 import androidx.media3.common.Player
+import com.example.snorelyzer.SessionSaveStatus
+import com.example.snorelyzer.StoppedSessionSave
 import com.example.snorelyzer.data.local.AudioExportDestination
 import com.example.snorelyzer.data.local.AudioExportFormat
 import com.example.snorelyzer.data.local.RecordingAudioAccess
@@ -56,6 +58,52 @@ class SessionInsightsViewModelTest {
         assertEquals(emptyList<SleepNight>(), viewModel.state.value.sleepNights)
         assertNull(viewModel.state.value.selectedDate)
         assertNull(viewModel.state.value.selectedNight)
+    }
+
+    @Test
+    fun `saved session selects its persisted night even when it is older than other nights`() = runTest {
+        val newest = sleepNight(LocalDate.of(2026, 6, 11), "newest")
+        val savedNight = sleepNight(LocalDate.of(2026, 6, 10), "just-saved")
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        sleepNights.emit(listOf(newest))
+        advanceUntilIdle()
+
+        val save = StoppedSessionSave("just-saved", SessionSaveStatus.Saving)
+        viewModel.onAction(SessionInsightsAction.OnShowSavedSession(save))
+        advanceUntilIdle()
+        sleepNights.emit(listOf(newest))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.isLoading)
+        assertNull(viewModel.state.value.selectedNight)
+
+        viewModel.onAction(SessionInsightsAction.OnShowSavedSession(save.copy(status = SessionSaveStatus.Saved)))
+        advanceUntilIdle()
+        sleepNights.emit(listOf(newest, savedNight))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoading)
+        assertEquals(savedNight, viewModel.state.value.selectedNight)
+
+        viewModel.onAction(SessionInsightsAction.OnDateSelected(newest.date))
+        viewModel.onAction(SessionInsightsAction.OnShowSavedSession(save.copy(status = SessionSaveStatus.Saved)))
+        assertEquals(newest, viewModel.state.value.selectedNight)
+    }
+
+    @Test
+    fun `failed save without a session stops loading and does not select unrelated history`() = runTest {
+        val newest = sleepNight(LocalDate.of(2026, 6, 11), "newest")
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        viewModel.onAction(
+            SessionInsightsAction.OnShowSavedSession(StoppedSessionSave("missing", SessionSaveStatus.Failed))
+        )
+        advanceUntilIdle()
+        sleepNights.emit(listOf(newest))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoading)
+        assertNull(viewModel.state.value.selectedNight)
+        assertEquals(setOf(newest.date), viewModel.state.value.availableDates)
     }
 
     @Test

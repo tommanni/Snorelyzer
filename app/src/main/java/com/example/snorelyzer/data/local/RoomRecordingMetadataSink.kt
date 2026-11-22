@@ -20,25 +20,25 @@ class RoomRecordingMetadataSink(
     private val persistenceMutex = Mutex()
 
     override fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
-        persist("Failed to save start of ${session.sessionId}", onFailure) {
+        persist("Failed to save start of ${session.sessionId}", { if (!it) onFailure() }) {
             localDataSource.upsertSession(session)
         }
     }
 
     override fun onEpisodeCompleted(episode: RecordingEpisodeMetadata, onFailure: () -> Unit) {
-        persist("Failed to save metadata for ${episode.episodeId}", onFailure) {
+        persist("Failed to save metadata for ${episode.episodeId}", { if (!it) onFailure() }) {
             localDataSource.insertEpisode(episode)
         }
     }
 
-    override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
-        persist("Failed to save completion of ${session.sessionId}", onFailure) {
+    override fun onSessionCompleted(session: RecordingSessionMetadata, onResult: (Boolean) -> Unit) {
+        persist("Failed to save completion of ${session.sessionId}", onResult) {
             localDataSource.completeSession(session)
         }
     }
 
     override fun onSessionDiscarded(sessionId: String) {
-        persist("Failed to discard $sessionId", onFailure = {}) {
+        persist("Failed to discard $sessionId", onResult = {}) {
             localDataSource.deleteSession(sessionId)
         }
     }
@@ -48,19 +48,21 @@ class RoomRecordingMetadataSink(
 
     private fun persist(
         errorMessage: String,
-        onFailure: () -> Unit,
+        onResult: (Boolean) -> Unit,
         block: suspend () -> Unit
     ) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             persistenceMutex.withLock {
-                try {
+                val saved = try {
                     block()
+                    true
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
                     runCatching { Log.e(TAG, errorMessage, error) }
-                    onFailure()
+                    false
                 }
+                onResult(saved)
             }
         }
     }

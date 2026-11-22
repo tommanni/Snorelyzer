@@ -35,7 +35,7 @@ class RoomRecordingMetadataSinkTest {
                 durationMillis = 5_000L
             )
         ) { episodeFailed.complete(Unit) }
-        sink.onSessionCompleted(endedSession) { error("Unexpected session completion failure") }
+        sink.onSessionCompleted(endedSession) { check(it) { "Unexpected session completion failure" } }
 
         val completedSession = withTimeout(5_000L) { dataSource.completedSession.await() }
         assertTrue(episodeFailed.isCompleted)
@@ -48,7 +48,7 @@ class RoomRecordingMetadataSinkTest {
         val dataSource = FailingEpisodeDataSource(beforeComplete = { allowWrite.await() })
         val sink = RoomRecordingMetadataSink(dataSource)
         val session = RecordingSessionMetadata(sessionId = "session-0", startedAtMillis = 0L, endedAtMillis = 5_000L)
-        sink.onSessionCompleted(session) { error("Unexpected session completion failure") }
+        sink.onSessionCompleted(session) { check(it) { "Unexpected session completion failure" } }
 
         val cleanup = async(start = CoroutineStart.UNDISPATCHED) {
             sink.afterPendingWrites { assertTrue(dataSource.completedSession.isCompleted) }

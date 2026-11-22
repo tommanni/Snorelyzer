@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import com.example.snorelyzer.SessionSaveStatus
+import com.example.snorelyzer.StoppedSessionSave
 import com.example.snorelyzer.data.local.AudioExportDestination
 import com.example.snorelyzer.data.local.AudioExportFormat
 import com.example.snorelyzer.data.local.IncompleteAudioExportException
@@ -27,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -47,7 +50,8 @@ data class SessionInsightsState(
     val collapsedSessionIds: Set<String> = emptySet(),
     val expandedEpisodeIds: Set<String> = emptySet(),
     val audioExport: AudioExportState? = null,
-    val hasExportableNightAudio: Boolean = false
+    val hasExportableNightAudio: Boolean = false,
+    val openedSessionId: String? = null
 )
 
 data class AudioExportState(
@@ -84,6 +88,7 @@ sealed interface SessionInsightsAction {
     data object OnShowDatePicker : SessionInsightsAction
     data object OnDismissDatePicker : SessionInsightsAction
     data class OnDateSelected(val date: LocalDate) : SessionInsightsAction
+    data class OnShowSavedSession(val save: StoppedSessionSave) : SessionInsightsAction
     data class OnTogglePlayback(val episode: RecordingEpisodeEntity) : SessionInsightsAction
     data class OnSeekPlayback(val episode: RecordingEpisodeEntity, val positionMillis: Long) : SessionInsightsAction
     data class OnWaveformVisible(val filePath: String) : SessionInsightsAction
@@ -114,6 +119,8 @@ class SessionInsightsViewModel(
     val playback: StateFlow<EpisodePlaybackState?> = _playback.asStateFlow()
 
     private var isManualDateSelection = false
+    private val recordingSave = MutableStateFlow<StoppedSessionSave?>(null)
+    private var sessionIdToSelect: String? = null
     private var positionUpdates: Job? = null
     private val waveformLoads = mutableMapOf<String, Job>()
     private var pendingExport: RecordingAudioExport? = null
@@ -142,42 +149,59 @@ class SessionInsightsViewModel(
         player.addListener(playerListener)
 
         viewModelScope.launch {
-            localDataSource.observeSleepNights(ZoneId.systemDefault()).collect { sleepNights ->
-                val previousNight = _state.value.selectedNight
-                _state.update { currentState ->
-                    val selectedDate = if (isManualDateSelection &&
-                        currentState.selectedDate != null &&
-                        sleepNights.any { it.date == currentState.selectedDate }
-                    ) {
-                        currentState.selectedDate
-                    } else {
-                        isManualDateSelection = false
-                        sleepNights.firstOrNull()?.date
-                    }
-
-                    val selectedNight = sleepNights.firstOrNull { it.date == selectedDate }
-                    val selectedNightAnalytics = selectedNight?.let { computeNightAnalytics(it) }
-
-                    currentState.copy(
-                        sleepNights = sleepNights,
-                        selectedDate = selectedDate,
-                        selectedNight = selectedNight,
-                        selectedNightAnalytics = selectedNightAnalytics,
-                        availableDates = sleepNights.mapTo(mutableSetOf()) { it.date },
-                        hasExportableNightAudio = selectedNight == previousNight && currentState.hasExportableNightAudio,
-                        isLoading = false
-                    )
-                }
-                val currentPlayback = _playback.value
-                val selectedNight = _state.value.selectedNight
-                if (selectedNight != previousNight) refreshNightAudioAvailability()
-                if (currentPlayback != null) {
-                    val clipStillAvailable = selectedNight?.allEpisodes?.any {
-                        it.episode.episodeId == currentPlayback.episodeId && it.episode.filePath != null
-                    } == true
-                    if (previousNight?.date != selectedNight?.date || !clipStillAvailable) clearPlayback()
+            // Requery after finalization so this reader sees the committed row or a definite failure.
+            recordingSave.collectLatest { save ->
+                localDataSource.observeSleepNights(ZoneId.systemDefault()).collect { sleepNights ->
+                    updateSleepNights(sleepNights, save)
                 }
             }
+        }
+    }
+
+    private fun updateSleepNights(sleepNights: List<SleepNight>, save: StoppedSessionSave?) {
+        val previousState = _state.value
+        val previousNight = previousState.selectedNight
+        val sessionId = sessionIdToSelect
+        val saveStatus = save?.status
+        if (sessionId != null && sessionId != save?.sessionId) return
+        val selectedNight = if (sessionId != null) {
+            sleepNights.firstOrNull { night ->
+                night.sessions.any { details ->
+                    details.session.sessionId == sessionId &&
+                        (details.session.endedAtMillis != null || saveStatus == SessionSaveStatus.Failed)
+                }
+            }?.also {
+                isManualDateSelection = true
+                sessionIdToSelect = null
+            }
+        } else {
+            val retainedNight = if (isManualDateSelection) {
+                sleepNights.firstOrNull { it.date == previousState.selectedDate }
+            } else {
+                null
+            }
+            isManualDateSelection = retainedNight != null
+            retainedNight ?: sleepNights.firstOrNull()
+        }
+
+        _state.update { currentState ->
+            currentState.copy(
+                sleepNights = sleepNights,
+                selectedDate = selectedNight?.date,
+                selectedNight = selectedNight,
+                selectedNightAnalytics = selectedNight?.let(::computeNightAnalytics),
+                availableDates = sleepNights.mapTo(mutableSetOf()) { it.date },
+                hasExportableNightAudio = selectedNight == previousNight && currentState.hasExportableNightAudio,
+                isLoading = selectedNight == null && sessionIdToSelect != null && saveStatus == SessionSaveStatus.Saving
+            )
+        }
+        if (selectedNight != previousNight) refreshNightAudioAvailability()
+        val currentPlayback = _playback.value
+        if (currentPlayback != null) {
+            val clipStillAvailable = selectedNight?.allEpisodes?.any {
+                it.episode.episodeId == currentPlayback.episodeId && it.episode.filePath != null
+            } == true
+            if (previousNight?.date != selectedNight?.date || !clipStillAvailable) clearPlayback()
         }
     }
 
@@ -218,6 +242,7 @@ class SessionInsightsViewModel(
             }
             is SessionInsightsAction.OnDateSelected -> {
                 if (action.date != _state.value.selectedDate) clearPlayback()
+                sessionIdToSelect = null
                 isManualDateSelection = true
                 _state.update { currentState ->
                     val night = currentState.sleepNights.firstOrNull { it.date == action.date }
@@ -231,6 +256,26 @@ class SessionInsightsViewModel(
                     )
                 }
                 refreshNightAudioAvailability()
+            }
+            is SessionInsightsAction.OnShowSavedSession -> {
+                val save = action.save
+                if (recordingSave.value?.sessionId != save.sessionId) {
+                    sessionIdToSelect = save.sessionId
+                    clearPlayback()
+                    _state.update {
+                        it.copy(
+                            openedSessionId = save.sessionId,
+                            selectedDate = null,
+                            selectedNight = null,
+                            selectedNightAnalytics = null,
+                            hasExportableNightAudio = false,
+                            isLoading = true,
+                            isDatePickerVisible = false,
+                            nightToDelete = null
+                        )
+                    }
+                }
+                recordingSave.value = save
             }
             is SessionInsightsAction.OnTogglePlayback -> withSelectedClip(action.episode.episodeId, ::togglePlayback)
             is SessionInsightsAction.OnSeekPlayback -> withSelectedClip(action.episode.episodeId) { night, episode ->

@@ -22,8 +22,16 @@ data class SleepTrackingSessionState(
     val sessionStartedAtMillis: Long? = null,
     val isReconnecting: Boolean = false,
     val interruptedAtMillis: Long? = null,
-    val hasSaveFailure: Boolean = false
+    val hasSaveFailure: Boolean = false,
+    val explicitlyStoppedSession: StoppedSessionSave? = null
 )
+
+data class StoppedSessionSave(
+    val sessionId: String,
+    val status: SessionSaveStatus
+)
+
+enum class SessionSaveStatus { Saving, Saved, Failed }
 
 interface SleepTrackingSessionStateSource {
     val state: StateFlow<SleepTrackingSessionState>
@@ -128,13 +136,41 @@ class SleepTrackingSessionController(
         audioProcessingPipeline?.reset()
     }
 
-    fun stopSession(save: Boolean, endedAtMillis: Long, interrupted: Boolean = false) {
+    fun stopSession(
+        save: Boolean,
+        endedAtMillis: Long,
+        interrupted: Boolean = false,
+        explicitlyRequestedSave: Boolean = false
+    ) {
+        val sessionId = audioEventRecorder.currentSession?.sessionId
+            ?.takeIf { save && explicitlyRequestedSave && !interrupted }
+        val saveToken = synchronized(saveStatusLock) { saveStatusSession }
+        var status = SessionSaveStatus.Saving
+
+        fun reportResult(saved: Boolean) {
+            if (sessionId == null) return
+            synchronized(saveStatusLock) {
+                status = if (saved) SessionSaveStatus.Saved else SessionSaveStatus.Failed
+                if (saveStatusSession === saveToken && _state.value.explicitlyStoppedSession?.sessionId == sessionId) {
+                    _state.update {
+                        it.copy(
+                            explicitlyStoppedSession = StoppedSessionSave(sessionId, status),
+                            hasSaveFailure = it.hasSaveFailure || !saved
+                        )
+                    }
+                }
+            }
+        }
+
         try {
             if (save) {
-                audioEventRecorder.stopSession(endedAtMillis)
+                audioEventRecorder.stopSession(endedAtMillis, ::reportResult)
             } else {
                 audioEventRecorder.discardSession()
             }
+        } catch (error: Exception) {
+            reportResult(false)
+            throw error
         } finally {
             try {
                 audioEventRecorder.reset()
@@ -145,7 +181,8 @@ class SleepTrackingSessionController(
                     _state.value = SleepTrackingSessionState(
                         latestStatus = "Stopped",
                         interruptedAtMillis = endedAtMillis.takeIf { interrupted },
-                        hasSaveFailure = save && _state.value.hasSaveFailure
+                        hasSaveFailure = save && (_state.value.hasSaveFailure || status == SessionSaveStatus.Failed),
+                        explicitlyStoppedSession = sessionId?.let { StoppedSessionSave(it, status) }
                     )
                 }
             }

@@ -536,8 +536,9 @@ class AudioEventRecorderTest {
             completedEpisodes += episode
         }
 
-        override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
+        override fun onSessionCompleted(session: RecordingSessionMetadata, onResult: (Boolean) -> Unit) {
             completedSessions += session
+            onResult(true)
         }
 
         override fun onSessionDiscarded(sessionId: String) {

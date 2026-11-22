@@ -15,6 +15,7 @@ import com.example.snorelyzer.ml.recording.RecordingMetadataSink
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -196,21 +197,38 @@ class SleepTrackingSessionControllerTest {
     }
 
     @Test
+    fun explicitStopPublishesSessionIdBeforeTheSaveFinishes() {
+        val sink = FakeRecordingMetadataSink()
+        val controller = controller(sink = sink)
+        controller.startSession(startedAtMillis = 1_000L)
+        controller.stopSession(save = true, endedAtMillis = 2_000L, explicitlyRequestedSave = true)
+
+        assertFalse(controller.state.value.isRunning)
+        assertEquals(StoppedSessionSave("session-1000", SessionSaveStatus.Saving), controller.state.value.explicitlyStoppedSession)
+
+        sink.sessionCompletionResults.single()(true)
+
+        assertEquals(StoppedSessionSave("session-1000", SessionSaveStatus.Saved), controller.state.value.explicitlyStoppedSession)
+    }
+
+    @Test
     fun lateMetadataFailureWarnsAfterStopAndDoesNotAffectNextSession() {
         val sink = FakeRecordingMetadataSink()
         val controller = controller(sink = sink)
         controller.startSession(startedAtMillis = 1_000L)
-        controller.stopSession(save = true, endedAtMillis = 2_000L)
+        controller.stopSession(save = true, endedAtMillis = 2_000L, explicitlyRequestedSave = true)
 
-        val reportFailure = sink.sessionCompletionFailures.single()
+        val reportResult = sink.sessionCompletionResults.single()
         assertFalse(controller.state.value.hasSaveFailure)
-        reportFailure()
+        reportResult(false)
         assertTrue(controller.state.value.hasSaveFailure)
         assertFalse(controller.state.value.isRunning)
+        assertEquals(SessionSaveStatus.Failed, controller.state.value.explicitlyStoppedSession?.status)
 
         controller.startSession(startedAtMillis = 3_000L)
-        reportFailure()
+        reportResult(false)
         assertFalse(controller.state.value.hasSaveFailure)
+        assertNull(controller.state.value.explicitlyStoppedSession)
     }
 
     private fun controller(
@@ -286,7 +304,7 @@ class SleepTrackingSessionControllerTest {
         val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
         val completedSessions = mutableListOf<RecordingSessionMetadata>()
         val discardedSessionIds = mutableListOf<String>()
-        val sessionCompletionFailures = mutableListOf<() -> Unit>()
+        val sessionCompletionResults = mutableListOf<(Boolean) -> Unit>()
 
         override fun onSessionStarted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
             startedSessions += session
@@ -296,9 +314,9 @@ class SleepTrackingSessionControllerTest {
             completedEpisodes += episode
         }
 
-        override fun onSessionCompleted(session: RecordingSessionMetadata, onFailure: () -> Unit) {
+        override fun onSessionCompleted(session: RecordingSessionMetadata, onResult: (Boolean) -> Unit) {
             completedSessions += session
-            sessionCompletionFailures += onFailure
+            sessionCompletionResults += onResult
         }
 
         override fun onSessionDiscarded(sessionId: String) {
