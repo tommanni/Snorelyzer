@@ -1,5 +1,6 @@
 package com.example.snorelyzer.data.local
 
+import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -10,6 +11,20 @@ import org.junit.Test
 
 class SleepNightTest {
     private val zoneId: ZoneId = ZoneId.of("Europe/Helsinki")
+
+    @Test
+    fun recordedSessionsKeepTheirNightWhenViewedFromAnotherTimeZone() {
+        val recording = RecordingSessionMetadata(
+            sessionId = "session-1",
+            startedAtMillis = millisAt(2026, 6, 10, 10, 0),
+            recordingZoneId = zoneId
+        )
+        val session = RecordingSessionWithEpisodes(recording.toEntity(), emptyList())
+
+        val night = listOf(session).toSleepNights(ZoneId.of("Asia/Tokyo")).single()
+
+        assertEquals(LocalDate.of(2026, 6, 9), night.date)
+    }
 
     @Test
     fun sleepNightDateUsesNoonBoundary() {

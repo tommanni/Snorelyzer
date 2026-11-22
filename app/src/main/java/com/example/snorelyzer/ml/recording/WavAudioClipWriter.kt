@@ -44,6 +44,14 @@ internal class WavAudioClipWriter internal constructor(
         }
     }
 
+    override fun storedClips(): List<StoredAudioClip> = recordingsDir.listFiles().orEmpty().mapNotNull { file ->
+        val match = CLIP_NAME.matchEntire(file.name) ?: return@mapNotNull null
+        val start = match.groupValues[2].toLongOrNull() ?: return@mapNotNull null
+        val end = match.groupValues[3].toLongOrNull() ?: return@mapNotNull null
+        if (!file.isFile) return@mapNotNull null
+        StoredAudioClip(match.groupValues[1], start, end, file.absolutePath)
+    }
+
     private fun writeWav(
         output: FileOutputStream,
         samples: FloatArray,
@@ -98,6 +106,7 @@ internal class WavAudioClipWriter internal constructor(
 
     private companion object {
         const val RECORDINGS_DIR = "recordings"
+        val CLIP_NAME = Regex("(session-(-?\\d+))_\\1-episode-\\d+_-?\\d+_(-?\\d+)\\.wav")
         const val CHANNEL_COUNT = 1
         const val BITS_PER_SAMPLE = 16
         const val PCM_BUFFER_BYTES = 16 * 1024

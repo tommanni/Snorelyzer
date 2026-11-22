@@ -59,6 +59,28 @@ interface SleepRecordingDao {
     @Query("SELECT DISTINCT filePath FROM recording_episodes WHERE sessionId IN (:sessionIds) AND filePath IS NOT NULL")
     suspend fun getAudioPaths(sessionIds: List<String>): List<String>
 
+    @Query("""
+        SELECT s.sessionId, s.nightEpochDay, s.startedAtMillis, s.endedAtMillis,
+            MAX(e.clipEndMillis) AS lastClipEndMillis, COUNT(e.filePath) > 0 AS hasAudioPaths
+        FROM recording_sessions s
+        LEFT JOIN recording_episodes e ON s.sessionId = e.sessionId
+        WHERE s.nightEpochDay IS NOT NULL
+        GROUP BY s.sessionId
+    """)
+    suspend fun sessionsForAudioRetention(): List<SessionForAudioRetention>
+
+    @Query("""
+        SELECT DISTINCT filePath FROM recording_episodes WHERE filePath IS NOT NULL
+        AND sessionId IN (SELECT sessionId FROM recording_sessions WHERE nightEpochDay = :nightEpochDay)
+    """)
+    suspend fun getNightAudioPaths(nightEpochDay: Long): List<String>
+
+    @Query("""
+        UPDATE recording_episodes SET filePath = NULL, audioExpired = 1 WHERE filePath = :filePath
+        AND sessionId IN (SELECT sessionId FROM recording_sessions WHERE nightEpochDay = :nightEpochDay)
+    """)
+    suspend fun markAudioExpired(nightEpochDay: Long, filePath: String)
+
     @Query("DELETE FROM recording_sessions WHERE sessionId IN (:sessionIds)")
     suspend fun deleteSessions(sessionIds: List<String>)
 

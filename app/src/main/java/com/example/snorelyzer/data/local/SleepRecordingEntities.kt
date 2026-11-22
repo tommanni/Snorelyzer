@@ -1,6 +1,7 @@
 package com.example.snorelyzer.data.local
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -10,7 +11,8 @@ import com.example.snorelyzer.ml.recording.RecordedEventGroup
 data class RecordingSessionEntity(
     @PrimaryKey val sessionId: String,
     val startedAtMillis: Long,
-    val endedAtMillis: Long?
+    val endedAtMillis: Long?,
+    val nightEpochDay: Long? = null
 )
 
 @Entity(
@@ -32,7 +34,8 @@ data class RecordingEpisodeEntity(
     val clipEndMillis: Long,
     val durationMillis: Long,
     val sampleRate: Int,
-    val filePath: String?
+    val filePath: String?,
+    @ColumnInfo(defaultValue = "0") val audioExpired: Boolean = false
 )
 
 @Entity(

@@ -26,6 +26,9 @@ data class SleepNight(
     val episodeCount: Int
         get() = sessions.sumOf { it.episodes.size }
 
+    val hasAudioPaths: Boolean
+        get() = sessions.any { session -> session.episodes.any { it.episode.filePath != null } }
+
     val allEpisodes: List<RecordingEpisodeWithDetails>
         get() = sessions.flatMap { it.episodes }.sortedBy { it.episode.clipStartMillis }
 
@@ -46,7 +49,10 @@ fun sleepNightDateFor(startedAtMillis: Long, zoneId: ZoneId): LocalDate {
 }
 
 fun List<RecordingSessionWithEpisodes>.toSleepNights(zoneId: ZoneId): List<SleepNight> {
-    return groupBy { sleepNightDateFor(it.session.startedAtMillis, zoneId) }
+    return groupBy { details ->
+        val session = details.session
+        session.nightEpochDay?.let(LocalDate::ofEpochDay) ?: sleepNightDateFor(session.startedAtMillis, zoneId)
+    }
         .map { (date, sessions) ->
             SleepNight(
                 date = date,

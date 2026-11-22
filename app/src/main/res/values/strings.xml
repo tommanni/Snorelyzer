@@ -17,6 +17,17 @@
     <string name="record_save_failed">Some recordings couldn’t be saved.</string>
     <string name="settings_title">Settings</string>
     <string name="settings_data_management">Data management</string>
+    <string name="settings_audio_retention">Audio retention</string>
+    <string name="settings_audio_retention_description">The retention period starts when the last recording of a sleep night ends. Expired audio is deleted and your sleep history stays available.</string>
+    <string name="settings_audio_retention_7_days">7 days</string>
+    <string name="settings_audio_retention_30_days">30 days</string>
+    <string name="settings_audio_retention_90_days">90 days</string>
+    <string name="settings_audio_retention_indefinite">Keep indefinitely</string>
+    <string name="settings_audio_retention_selected">Selected</string>
+    <string name="settings_audio_retention_confirm_title">Shorten audio retention?</string>
+    <string name="settings_audio_retention_warning">Changing to %1$s will permanently delete audio from nights outside the new period. Your sleep history and detected events will still be available.</string>
+    <string name="settings_audio_retention_confirm">Save and clean up</string>
+    <string name="settings_audio_retention_failed">Couldn’t change audio retention. Try again.</string>
     <string name="settings_delete_all_data">Delete all data</string>
     <string name="settings_delete_title">Delete all data?</string>
     <string name="settings_delete_warning">This permanently deletes all sleep history, audio recordings, and detected events stored by this app on this device.</string>
@@ -28,6 +39,7 @@
     <string name="insights_seek_clip">Seek audio clip</string>
     <string name="insights_clip_position">%1$s of %2$s</string>
     <string name="insights_audio_missing">Audio file unavailable</string>
+    <string name="insights_audio_expired">Audio expired</string>
     <string name="insights_audio_playback_failed">Couldn’t play this clip</string>
     <string name="insights_save_clip">Save clip</string>
     <string name="insights_night_options">Night options</string>

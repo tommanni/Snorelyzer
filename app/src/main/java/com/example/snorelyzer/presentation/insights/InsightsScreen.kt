@@ -306,7 +306,7 @@ fun InsightsScreen(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.insights_export_night)) },
                                 leadingIcon = { Icon(Icons.Outlined.FolderZip, contentDescription = null) },
-                                enabled = sessionState.audioExport == null && night.episodeCount > 0,
+                                enabled = sessionState.audioExport == null && sessionState.hasExportableNightAudio,
                                 onClick = {
                                     menuExpanded = false
                                     onSessionAction(SessionInsightsAction.OnExportNight)
@@ -800,25 +800,27 @@ private fun SleepEpisodeItem(
                             Icon(Icons.Outlined.Download, contentDescription = stringResource(R.string.insights_save_clip))
                         }
                     }
-                    FilledTonalIconButton(
-                        onClick = { onAction(SessionInsightsAction.OnTogglePlayback(episode)) },
-                        enabled = hasAudioFile,
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = if (isPlayRequested) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.primaryContainer
-                            },
-                            contentColor = if (isPlayRequested) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            }
-                        )
-                    ) {
-                        val icon = if (isPlayRequested) Icons.Default.Pause else Icons.Default.PlayArrow
-                        val contentDesc = if (isPlayRequested) "Pause audio" else "Play audio"
-                        Icon(icon, contentDescription = contentDesc, modifier = Modifier.size(20.dp))
+                    AnimatedVisibility(visible = !episode.audioExpired) {
+                        FilledTonalIconButton(
+                            onClick = { onAction(SessionInsightsAction.OnTogglePlayback(episode)) },
+                            enabled = hasAudioFile,
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = if (isPlayRequested) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                },
+                                contentColor = if (isPlayRequested) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                }
+                            )
+                        ) {
+                            val icon = if (isPlayRequested) Icons.Default.Pause else Icons.Default.PlayArrow
+                            val contentDesc = if (isPlayRequested) "Pause audio" else "Play audio"
+                            Icon(icon, contentDescription = contentDesc, modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
             }
@@ -841,10 +843,14 @@ private fun SleepEpisodeItem(
                 )
             }
 
-            if (isAudioMissing || clipPlayback?.hasError == true) {
+            if (episode.audioExpired || isAudioMissing || clipPlayback?.hasError == true) {
                 Text(
                     text = stringResource(
-                        if (isAudioMissing) R.string.insights_audio_missing else R.string.insights_audio_playback_failed
+                        when {
+                            episode.audioExpired -> R.string.insights_audio_expired
+                            isAudioMissing -> R.string.insights_audio_missing
+                            else -> R.string.insights_audio_playback_failed
+                        }
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall

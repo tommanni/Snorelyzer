@@ -1,6 +1,7 @@
 package com.example.snorelyzer.presentation.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,15 +12,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.snorelyzer.R
+import com.example.snorelyzer.data.local.AudioRetentionPeriod
 import com.example.snorelyzer.presentation.AppSnackbarVisuals
 import com.example.snorelyzer.presentation.SnackbarTone
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
@@ -97,10 +104,11 @@ internal fun SettingsScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
+                RetentionSetting(state = state, onAction = onAction)
                 Button(
                     onClick = { onAction(SettingsAction.OnDeleteDataClick) },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.showDeleteConfirmation,
+                    enabled = !state.showDeleteConfirmation && !state.isSavingRetention,
                     shape = CircleShape,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -116,6 +124,84 @@ internal fun SettingsScreen(
     if (state.showDeleteConfirmation) {
         DeleteDataDialog(state = state, onAction = onAction)
     }
+    state.retentionToConfirm?.let { period ->
+        ConfirmRetentionDialog(period = period, onAction = onAction)
+    }
+}
+
+@Composable
+private fun RetentionSetting(state: SettingsState, onAction: (SettingsAction) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.settings_audio_retention),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = stringResource(R.string.settings_audio_retention_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Box {
+            OutlinedButton(
+                enabled = !state.isSavingRetention && !state.isDeleting,
+                onClick = { onAction(SettingsAction.OnShowRetentionOptions) }
+            ) {
+                Text(text = state.retentionPeriod.label(), modifier = Modifier.padding(end = 4.dp))
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+            DropdownMenu(
+                expanded = state.showRetentionOptions,
+                onDismissRequest = { onAction(SettingsAction.OnDismissRetentionOptions) }
+            ) {
+                for (period in AudioRetentionPeriod.entries) {
+                    DropdownMenuItem(
+                        text = { Text(period.label()) },
+                        trailingIcon = if (period == state.retentionPeriod) {
+                            { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.settings_audio_retention_selected)) }
+                        } else null,
+                        onClick = { onAction(SettingsAction.OnSelectRetention(period)) }
+                    )
+                }
+            }
+        }
+        if (state.retentionSaveFailed) {
+            Text(
+                text = stringResource(R.string.settings_audio_retention_failed),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudioRetentionPeriod.label(): String = stringResource(
+    when (this) {
+        AudioRetentionPeriod.SevenDays -> R.string.settings_audio_retention_7_days
+        AudioRetentionPeriod.ThirtyDays -> R.string.settings_audio_retention_30_days
+        AudioRetentionPeriod.NinetyDays -> R.string.settings_audio_retention_90_days
+        AudioRetentionPeriod.Indefinitely -> R.string.settings_audio_retention_indefinite
+    }
+)
+
+@Composable
+private fun ConfirmRetentionDialog(period: AudioRetentionPeriod, onAction: (SettingsAction) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onAction(SettingsAction.OnDismissRetentionConfirmation) },
+        title = { Text(stringResource(R.string.settings_audio_retention_confirm_title)) },
+        text = { Text(stringResource(R.string.settings_audio_retention_warning, period.label())) },
+        dismissButton = {
+            TextButton(onClick = { onAction(SettingsAction.OnDismissRetentionConfirmation) }) {
+                Text(stringResource(R.string.settings_delete_cancel))
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onAction(SettingsAction.OnConfirmRetention) }) {
+                Text(stringResource(R.string.settings_audio_retention_confirm))
+            }
+        }
+    )
 }
 
 @Composable
@@ -184,7 +270,7 @@ private fun DeleteDataDialog(state: SettingsState, onAction: (SettingsAction) ->
 private fun SettingsScreenLightPreview() {
     SnorelyzerTheme(darkTheme = false) {
         Surface {
-            SettingsScreen(state = SettingsState(), onAction = {})
+            SettingsScreen(state = SettingsState(showRetentionOptions = true), onAction = {})
         }
     }
 }
@@ -194,7 +280,10 @@ private fun SettingsScreenLightPreview() {
 private fun SettingsScreenDarkPreview() {
     SnorelyzerTheme(darkTheme = true) {
         Surface {
-            SettingsScreen(state = SettingsState(), onAction = {})
+            SettingsScreen(
+                state = SettingsState(retentionPeriod = AudioRetentionPeriod.Indefinitely, retentionSaveFailed = true),
+                onAction = {}
+            )
         }
     }
 }
@@ -212,5 +301,21 @@ private fun DeleteDataDialogLightPreview() {
 private fun DeleteDataDialogDarkPreview() {
     SnorelyzerTheme(darkTheme = true) {
         DeleteDataDialog(state = SettingsState(showDeleteConfirmation = true), onAction = {})
+    }
+}
+
+@Preview(name = "Audio Retention Confirmation - Light")
+@Composable
+private fun RetentionDialogLightPreview() {
+    SnorelyzerTheme(darkTheme = false) {
+        ConfirmRetentionDialog(period = AudioRetentionPeriod.SevenDays, onAction = {})
+    }
+}
+
+@Preview(name = "Audio Retention Confirmation - Dark")
+@Composable
+private fun RetentionDialogDarkPreview() {
+    SnorelyzerTheme(darkTheme = true) {
+        ConfirmRetentionDialog(period = AudioRetentionPeriod.SevenDays, onAction = {})
     }
 }

@@ -1,6 +1,7 @@
 package com.example.snorelyzer
 
 import android.app.Application
+import com.example.snorelyzer.data.local.RecordingAudioCleanupSchedule
 import com.example.snorelyzer.di.appModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -15,5 +16,6 @@ class SnorelyzerApplication : Application() {
             androidContext(this@SnorelyzerApplication)
             modules(appModule)
         }
+        RecordingAudioCleanupSchedule.daily(this)
     }
 }

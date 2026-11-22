@@ -16,7 +16,11 @@ import androidx.compose.ui.test.performClick
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.snorelyzer.SleepTrackingSessionController
+import com.example.snorelyzer.data.local.AudioRetentionPreferences
+import com.example.snorelyzer.data.local.RecordingAudioAccess
+import com.example.snorelyzer.data.local.RecordingAudioRetention
 import com.example.snorelyzer.data.local.RecordingInterruptionStore
+import com.example.snorelyzer.data.local.RecordingMaintenance
 import com.example.snorelyzer.data.local.RoomRecordingMetadataSink
 import com.example.snorelyzer.data.local.RoomSleepRecordingDataSource
 import com.example.snorelyzer.data.local.SleepDataDeletion
@@ -69,7 +73,13 @@ class SettingsDeletionTest {
                 audioProcessingPipelineFactory = { error("Unexpected recording") },
                 initialInterruptedAtMillis = interruptionStore.interruptedAtMillis
             )
-            val viewModel = SettingsViewModel(SleepDataDeletion(controller, metadataSink, dataSource, interruptionStore))
+            val maintenance = RecordingMaintenance(controller, metadataSink)
+            val viewModel = SettingsViewModel(
+                SleepDataDeletion(controller, maintenance, dataSource, interruptionStore),
+                RecordingAudioRetention(
+                    AudioRetentionPreferences(testContext), dataSource, maintenance, RecordingAudioAccess()
+                ) { error("Unexpected cleanup scheduling") }
+            )
             composeRule.setContent {
                 SnorelyzerTheme {
                     val snackbarHostState = remember { SnackbarHostState() }

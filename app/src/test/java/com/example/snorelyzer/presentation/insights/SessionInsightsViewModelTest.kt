@@ -3,6 +3,7 @@ package com.example.snorelyzer.presentation.insights
 import androidx.media3.common.Player
 import com.example.snorelyzer.data.local.AudioExportDestination
 import com.example.snorelyzer.data.local.AudioExportFormat
+import com.example.snorelyzer.data.local.RecordingAudioAccess
 import com.example.snorelyzer.data.local.RecordingEpisodeEntity
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionEntity
@@ -26,6 +27,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -213,7 +215,8 @@ class SessionInsightsViewModelTest {
     fun `export uses the night requested before opening the picker`() = runTest {
         val latest = nightWithClip(LocalDate.of(2026, 6, 10), "latest")
         val older = nightWithClip(LocalDate.of(2026, 6, 9), "older")
-        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer())
+        val audioAccess = RecordingAudioAccess()
+        val viewModel = SessionInsightsViewModel(localDataSource, FakePlayer(), audioAccess)
         sleepNights.emit(listOf(latest, older))
         advanceUntilIdle()
 
@@ -222,6 +225,7 @@ class SessionInsightsViewModelTest {
             SessionInsightsEvent.ChooseExportDestination(AudioExportFormat.Zip, "Snorelyzer-2026-06-10.zip"),
             viewModel.events.first()
         )
+        assertNull(audioAccess.tryExpire(latest.date))
         viewModel.onAction(SessionInsightsAction.OnRequestDeleteNight)
         assertNull(viewModel.state.value.nightToDelete)
 
@@ -234,6 +238,7 @@ class SessionInsightsViewModelTest {
         viewModel.onAction(SessionInsightsAction.OnExportDestinationResult(destination))
 
         assertEquals(SessionInsightsEvent.AudioSaved(AudioExportFormat.Zip, 1, 0), viewModel.events.first())
+        audioAccess.tryExpire(latest.date).use { assertNotNull(it) }
         ZipInputStream(output.toByteArray().inputStream()).use { archive ->
             assertTrue(archive.nextEntry.name.startsWith("session-01/"))
             assertEquals("latest", archive.readBytes().decodeToString())
@@ -273,6 +278,7 @@ class SessionInsightsViewModelTest {
 
         assertEquals(SessionInsightsEvent.ExportAudioUnavailable, viewModel.events.first())
         assertNull(viewModel.state.value.audioExport)
+        assertFalse(viewModel.state.value.hasExportableNightAudio)
     }
 
     private fun nightWithClip(date: LocalDate, sessionId: String): SleepNight {

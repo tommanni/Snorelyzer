@@ -7,6 +7,7 @@ import androidx.media3.common.Player
 import com.example.snorelyzer.data.local.AudioExportDestination
 import com.example.snorelyzer.data.local.AudioExportFormat
 import com.example.snorelyzer.data.local.IncompleteAudioExportException
+import com.example.snorelyzer.data.local.RecordingAudioAccess
 import com.example.snorelyzer.data.local.RecordingAudioExport
 import com.example.snorelyzer.data.local.RecordingEpisodeEntity
 import com.example.snorelyzer.data.local.SleepNight
@@ -45,7 +46,8 @@ data class SessionInsightsState(
     val waveformsByPath: Map<String, ClipWaveform> = emptyMap(),
     val collapsedSessionIds: Set<String> = emptySet(),
     val expandedEpisodeIds: Set<String> = emptySet(),
-    val audioExport: AudioExportState? = null
+    val audioExport: AudioExportState? = null,
+    val hasExportableNightAudio: Boolean = false
 )
 
 data class AudioExportState(
@@ -99,7 +101,8 @@ sealed interface SessionInsightsEvent {
 
 class SessionInsightsViewModel(
     private val localDataSource: SleepRecordingLocalDataSource,
-    private val player: Player
+    private val player: Player,
+    private val audioAccess: RecordingAudioAccess = RecordingAudioAccess()
 ) : ViewModel() {
     private val _state = MutableStateFlow(SessionInsightsState())
     val state: StateFlow<SessionInsightsState> = _state.asStateFlow()
@@ -114,6 +117,9 @@ class SessionInsightsViewModel(
     private var positionUpdates: Job? = null
     private val waveformLoads = mutableMapOf<String, Job>()
     private var pendingExport: RecordingAudioExport? = null
+    private var exportAvailabilityCheck: Job? = null
+    private var exportLease: AutoCloseable? = null
+    private var playbackLease: AutoCloseable? = null
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -137,7 +143,7 @@ class SessionInsightsViewModel(
 
         viewModelScope.launch {
             localDataSource.observeSleepNights(ZoneId.systemDefault()).collect { sleepNights ->
-                val previousDate = _state.value.selectedDate
+                val previousNight = _state.value.selectedNight
                 _state.update { currentState ->
                     val selectedDate = if (isManualDateSelection &&
                         currentState.selectedDate != null &&
@@ -158,10 +164,19 @@ class SessionInsightsViewModel(
                         selectedNight = selectedNight,
                         selectedNightAnalytics = selectedNightAnalytics,
                         availableDates = sleepNights.mapTo(mutableSetOf()) { it.date },
+                        hasExportableNightAudio = selectedNight == previousNight && currentState.hasExportableNightAudio,
                         isLoading = false
                     )
                 }
-                if (previousDate != _state.value.selectedDate) clearPlayback()
+                val currentPlayback = _playback.value
+                val selectedNight = _state.value.selectedNight
+                if (selectedNight != previousNight) refreshNightAudioAvailability()
+                if (currentPlayback != null) {
+                    val clipStillAvailable = selectedNight?.allEpisodes?.any {
+                        it.episode.episodeId == currentPlayback.episodeId && it.episode.filePath != null
+                    } == true
+                    if (previousNight?.date != selectedNight?.date || !clipStillAvailable) clearPlayback()
+                }
             }
         }
     }
@@ -211,12 +226,16 @@ class SessionInsightsViewModel(
                         selectedDate = action.date,
                         selectedNight = night,
                         selectedNightAnalytics = analytics,
+                        hasExportableNightAudio = night == currentState.selectedNight && currentState.hasExportableNightAudio,
                         isDatePickerVisible = false
                     )
                 }
+                refreshNightAudioAvailability()
             }
-            is SessionInsightsAction.OnTogglePlayback -> togglePlayback(action.episode)
-            is SessionInsightsAction.OnSeekPlayback -> seekPlayback(action.episode, action.positionMillis)
+            is SessionInsightsAction.OnTogglePlayback -> withSelectedClip(action.episode.episodeId, ::togglePlayback)
+            is SessionInsightsAction.OnSeekPlayback -> withSelectedClip(action.episode.episodeId) { night, episode ->
+                seekPlayback(night, episode, action.positionMillis)
+            }
             is SessionInsightsAction.OnWaveformVisible -> loadWaveform(action.filePath)
             SessionInsightsAction.OnStopPlayback -> {
                 player.pause()
@@ -245,6 +264,16 @@ class SessionInsightsViewModel(
         }
     }
 
+    private fun refreshNightAudioAvailability() {
+        exportAvailabilityCheck?.cancel()
+        val night = _state.value.selectedNight ?: return
+        if (night.endedAtMillis == null || !night.hasAudioPaths) return
+        exportAvailabilityCheck = viewModelScope.launch {
+            val available = RecordingAudioExport.night(night, ZoneId.systemDefault()).hasAvailableAudio()
+            _state.update { if (it.selectedNight == night) it.copy(hasExportableNightAudio = available) else it }
+        }
+    }
+
     private fun requestAudioExport(episodeId: String? = null) {
         val current = _state.value
         val night = current.selectedNight ?: return
@@ -260,6 +289,11 @@ class SessionInsightsViewModel(
             val episode = night.allEpisodes.firstOrNull { it.episode.episodeId == episodeId }?.episode ?: return
             RecordingAudioExport.single(episode, zoneId)
         }
+        exportLease = audioAccess.tryUse(night.date)
+        if (exportLease == null) {
+            _events.trySend(SessionInsightsEvent.ExportAudioUnavailable)
+            return
+        }
         pendingExport = export
         _state.update { it.copy(audioExport = AudioExportState(night.date, export.format, AudioExportStage.CheckingAudio)) }
         viewModelScope.launch {
@@ -269,6 +303,9 @@ class SessionInsightsViewModel(
                     _events.send(SessionInsightsEvent.ChooseExportDestination(export.format, export.fileName))
                 } else {
                     clearAudioExport()
+                    if (export.format == AudioExportFormat.Zip && _state.value.selectedNight == night) {
+                        _state.update { it.copy(hasExportableNightAudio = false) }
+                    }
                     _events.send(SessionInsightsEvent.ExportAudioUnavailable)
                 }
             } catch (exception: CancellationException) {
@@ -297,7 +334,7 @@ class SessionInsightsViewModel(
         }
 
         updateAudioExportStage(AudioExportStage.Saving)
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             val feedback = try {
                 val saved = export.saveTo(destination)
                 if (saved == 0) SessionInsightsEvent.ExportAudioUnavailable
@@ -319,38 +356,57 @@ class SessionInsightsViewModel(
 
     private fun clearAudioExport() {
         pendingExport = null
+        exportLease?.close()
+        exportLease = null
         _state.update { it.copy(audioExport = null) }
     }
 
-    private fun togglePlayback(episode: RecordingEpisodeEntity) {
+    private inline fun withSelectedClip(episodeId: String, action: (SleepNight, RecordingEpisodeEntity) -> Unit) {
+        val night = _state.value.selectedNight ?: return
+        val episode = night.allEpisodes.firstOrNull { it.episode.episodeId == episodeId }?.episode ?: return
+        if (episode.filePath != null) action(night, episode)
+    }
+
+    private fun togglePlayback(night: SleepNight, episode: RecordingEpisodeEntity) {
         val current = _playback.value
         if (current?.episodeId == episode.episodeId && current.isPlayRequested) {
             player.pause()
         } else {
-            if (current?.episodeId != episode.episodeId) {
-                if (!prepareClip(episode, positionMillis = 0L)) return
-            } else {
-                if (player.playbackState == Player.STATE_ENDED) player.seekTo(0L)
-                if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            val lease = audioAccess.tryUse(night.date) ?: return
+            try {
+                if (current?.episodeId != episode.episodeId) {
+                    if (!prepareClip(episode, positionMillis = 0L)) return
+                } else {
+                    if (player.playbackState == Player.STATE_ENDED) player.seekTo(0L)
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                }
+                player.play()
+                releasePlaybackLease()
+                playbackLease = lease
+            } finally {
+                if (playbackLease !== lease) lease.close()
             }
-            player.play()
         }
         syncPlayback()
     }
 
-    private fun seekPlayback(episode: RecordingEpisodeEntity, positionMillis: Long) {
+    private fun seekPlayback(night: SleepNight, episode: RecordingEpisodeEntity, positionMillis: Long) {
         val current = _playback.value?.takeIf { it.episodeId == episode.episodeId }
         val duration = current?.durationMillis ?: episode.durationMillis
         if (duration <= 0L) return
         val target = positionMillis.coerceIn(0L, duration)
-        if (current == null) {
-            if (!prepareClip(episode, target)) return
-        } else {
-            // ExoPlayer can retain playWhenReady at the end of a clip.
-            if (player.playbackState == Player.STATE_ENDED) player.pause()
-            player.seekTo(target)
+        val lease = audioAccess.tryUse(night.date) ?: return
+        lease.use {
+            if (current == null) {
+                if (!prepareClip(episode, target)) return
+                releasePlaybackLease()
+            } else {
+                // ExoPlayer can retain playWhenReady at the end of a clip.
+                if (player.playbackState == Player.STATE_ENDED) player.pause()
+                player.seekTo(target)
+            }
+            syncPlayback()
         }
-        syncPlayback()
     }
 
     private fun prepareClip(episode: RecordingEpisodeEntity, positionMillis: Long): Boolean {
@@ -369,13 +425,15 @@ class SessionInsightsViewModel(
         val duration = player.duration.takeIf { it > 0L } ?: current.durationMillis
         val ended = player.playbackState == Player.STATE_ENDED
         val hasError = player.playerError != null
+        val isPlayRequested = player.playWhenReady && !ended && !hasError
         _playback.value = current.copy(
             positionMillis = if (ended && duration > 0L) duration else player.currentPosition,
             durationMillis = duration,
             isPlaying = player.isPlaying,
-            isPlayRequested = player.playWhenReady && !ended && !hasError,
+            isPlayRequested = isPlayRequested,
             hasError = hasError
         )
+        if (!isPlayRequested) releasePlaybackLease()
     }
 
     private fun clearPlayback() {
@@ -385,6 +443,12 @@ class SessionInsightsViewModel(
         positionUpdates = null
         player.stop()
         player.clearMediaItems()
+        releasePlaybackLease()
+    }
+
+    private fun releasePlaybackLease() {
+        playbackLease?.close()
+        playbackLease = null
     }
 
     private fun loadWaveform(filePath: String) {
@@ -445,6 +509,8 @@ class SessionInsightsViewModel(
         super.onCleared()
         player.removeListener(playerListener)
         player.release()
+        releasePlaybackLease()
+        if (_state.value.audioExport?.stage != AudioExportStage.Saving) clearAudioExport()
     }
 
     private companion object {

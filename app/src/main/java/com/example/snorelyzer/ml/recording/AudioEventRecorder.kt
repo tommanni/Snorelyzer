@@ -1,6 +1,7 @@
 package com.example.snorelyzer.ml.recording
 
 import android.util.Log
+import java.time.ZoneId
 
 enum class RecordedEventGroup {
     Snoring,
@@ -39,7 +40,8 @@ data class RecordingSessionMetadata(
     val sessionId: String,
     val startedAtMillis: Long,
     val endedAtMillis: Long? = null,
-    val completedEpisodeCount: Int = 0
+    val completedEpisodeCount: Int = 0,
+    val recordingZoneId: ZoneId = ZoneId.systemDefault()
 )
 
 data class EventSpanMetadata(

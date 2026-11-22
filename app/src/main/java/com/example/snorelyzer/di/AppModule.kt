@@ -5,7 +5,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.room.Room
 import com.example.snorelyzer.SleepTrackingSessionController
 import com.example.snorelyzer.SleepTrackingSessionStateSource
+import com.example.snorelyzer.data.local.AudioRetentionPreferences
+import com.example.snorelyzer.data.local.RecordingAudioAccess
+import com.example.snorelyzer.data.local.RecordingAudioCleanupSchedule
+import com.example.snorelyzer.data.local.RecordingAudioRetention
+import com.example.snorelyzer.data.local.RecordingAudioRetentionDataSource
 import com.example.snorelyzer.data.local.RecordingInterruptionStore
+import com.example.snorelyzer.data.local.RecordingMaintenance
+import com.example.snorelyzer.data.local.RecordingRetentionMigration
 import com.example.snorelyzer.data.local.RoomRecordingMetadataSink
 import com.example.snorelyzer.data.local.RoomSleepRecordingDataSource
 import com.example.snorelyzer.data.local.SleepDataDeletion
@@ -33,6 +40,7 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.bind
+import org.koin.dsl.binds
 import org.koin.dsl.module
 
 val appModule = module {
@@ -41,10 +49,20 @@ val appModule = module {
             androidContext(),
             SnorelyzerDatabase::class.java,
             "snorelyzer.db"
-        ).build()
+        ).addMigrations(RecordingRetentionMigration).build()
     }
     single { get<SnorelyzerDatabase>().sleepRecordingDao }
-    single<SleepRecordingLocalDataSource> { RoomSleepRecordingDataSource(database = get(), audioClipWriter = get()) }
+    singleOf(::RoomSleepRecordingDataSource) binds arrayOf(
+        SleepRecordingLocalDataSource::class,
+        RecordingAudioRetentionDataSource::class
+    )
+    singleOf(::RecordingAudioAccess)
+    singleOf(::RecordingMaintenance)
+    single { AudioRetentionPreferences(androidContext()) }
+    single {
+        val context = androidContext()
+        RecordingAudioRetention(get(), get(), get(), get()) { RecordingAudioCleanupSchedule.now(context) }
+    }
     singleOf(::RoomRecordingMetadataSink) bind RecordingMetadataSink::class
     singleOf(::SleepDataDeletion)
     single { RecordedEventConfig() }

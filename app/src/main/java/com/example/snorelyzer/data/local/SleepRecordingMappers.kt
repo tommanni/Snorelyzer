@@ -8,7 +8,8 @@ fun RecordingSessionMetadata.toEntity(): RecordingSessionEntity {
     return RecordingSessionEntity(
         sessionId = sessionId,
         startedAtMillis = startedAtMillis,
-        endedAtMillis = endedAtMillis
+        endedAtMillis = endedAtMillis,
+        nightEpochDay = sleepNightDateFor(startedAtMillis, recordingZoneId).toEpochDay()
     )
 }
 

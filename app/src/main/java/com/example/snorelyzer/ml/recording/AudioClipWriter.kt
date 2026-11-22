@@ -4,7 +4,15 @@ interface AudioClipWriter {
     fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult
     fun deleteClip(filePath: String): Boolean
     fun deleteAllClips(): Boolean
+    fun storedClips(): List<StoredAudioClip> = emptyList()
 }
+
+data class StoredAudioClip(
+    val sessionId: String,
+    val sessionStartMillis: Long,
+    val clipEndMillis: Long,
+    val filePath: String
+)
 
 data class AudioClipWriteRequest(
     val episodeId: String,
