@@ -192,8 +192,12 @@ class AudioEventRecorder(
         rollingBuffer.reset()
     }
 
-    fun stopSession(endedAtMillis: Long, onResult: (saved: Boolean) -> Unit = {}) {
-        closeActiveEpisode()
+    fun stopSession(
+        endedAtMillis: Long,
+        saveFinalClipUncompressed: Boolean = false,
+        onResult: (saved: Boolean) -> Unit = {}
+    ) {
+        closeActiveEpisode(saveUncompressed = saveFinalClipUncompressed)
         publishSavedClips(waitForAll = true)
         val completedSession = session?.copy(
             endedAtMillis = endedAtMillis,
@@ -251,7 +255,7 @@ class AudioEventRecorder(
         }
     }
 
-    private fun closeActiveEpisode() {
+    private fun closeActiveEpisode(saveUncompressed: Boolean = false) {
         val episode = activeEpisode ?: return
         saveFullClips(episode, emptyMap())
 
@@ -268,7 +272,12 @@ class AudioEventRecorder(
                 availableEnd
             )
             if (end > start) {
-                saveClip(episode, ClipBoundary(start, end), trimEdges = !episode.isContinuation)
+                saveClip(
+                    episode,
+                    ClipBoundary(start, end),
+                    trimEdges = !episode.isContinuation,
+                    saveUncompressed = saveUncompressed
+                )
             }
         }
         activeSpans.clear()
@@ -296,7 +305,12 @@ class AudioEventRecorder(
         }
     }
 
-    private fun saveClip(episode: ActiveEpisode, bufferedBoundary: ClipBoundary, trimEdges: Boolean) {
+    private fun saveClip(
+        episode: ActiveEpisode,
+        bufferedBoundary: ClipBoundary,
+        trimEdges: Boolean,
+        saveUncompressed: Boolean = false
+    ) {
         val currentSession = session ?: return
         val bufferedSamples = rollingBuffer.extract(
             bufferedBoundary.startMillis,
@@ -342,8 +356,8 @@ class AudioEventRecorder(
             sampleRate = request.sampleRate,
             durationMillis = request.samples.size * 1_000L / request.sampleRate
         )
-        // Prefer the fast WAV path when saves are backing up. Both formats are written off capture.
-        val useWav = pendingClips.size >= 2
+        // Skip encoding for the final clip on manual save or when writes are backing up.
+        val useWav = saveUncompressed || pendingClips.size >= 2
         val save = FutureTask {
             writeClip(metadata) {
                 if (useWav) clipWriter.writeUncompressedClip(request) else clipWriter.writeClip(request)

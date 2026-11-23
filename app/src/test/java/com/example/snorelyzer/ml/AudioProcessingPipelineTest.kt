@@ -85,7 +85,8 @@ class AudioProcessingPipelineTest {
         val classifier = FakeRelevantSleepClassifier(
             results = listOf(
                 ClassificationResult(index = 43, probability = 0.30f),
-                ClassificationResult(index = 44, probability = 0.40f)
+                ClassificationResult(index = 44, probability = 0.40f),
+                ClassificationResult(index = 41, probability = 0.04f)
             )
         )
         val pipeline = pipeline(classifier = classifier)
@@ -103,6 +104,44 @@ class AudioProcessingPipelineTest {
             classified.groupResults.map { it.group }
         )
         assertEquals(classified.groupResults, classified.occurringGroupResults)
+    }
+
+    @Test
+    fun respiratoryDiagnosticsRequestIndividualScoresWithoutRecordingBreathing() {
+        val classifier = FakeRelevantSleepClassifier(
+            results = listOf(
+                ClassificationResult(index = 41, probability = 0.2033f),
+                ClassificationResult(index = 44, probability = 0.1027f),
+                ClassificationResult(index = 46, probability = 0.1014f),
+                ClassificationResult(index = 50, probability = 0.0005f)
+            )
+        )
+        val pipeline = pipeline(classifier = classifier)
+
+        val result = pipeline.processChunk(FloatArray(chunkSize), 0L, forceInference = false)
+            as AudioProcessingResult.Classified
+
+        assertTrue(classifier.requestedClassIndices.containsAll(setOf(41, 44, 46, 50)))
+        assertTrue(result.groupResults.isEmpty())
+        assertTrue(result.occurringGroupResults.isEmpty())
+    }
+
+    @Test
+    fun quieterGaspOccursWhenItsScoreExceedsBreathing() {
+        val classifier = FakeRelevantSleepClassifier(
+            results = listOf(
+                ClassificationResult(index = 41, probability = 0.0120f),
+                ClassificationResult(index = 44, probability = 0.1299f),
+                ClassificationResult(index = 46, probability = 0.0014f),
+                ClassificationResult(index = 50, probability = 0.0002f)
+            )
+        )
+        val pipeline = pipeline(classifier = classifier)
+
+        val result = pipeline.processChunk(FloatArray(chunkSize), 0L, forceInference = false)
+            as AudioProcessingResult.Classified
+
+        assertEquals(RecordedEventGroup.Gasp, result.occurringGroupResults.single().group)
     }
 
     @Test
@@ -174,13 +213,16 @@ class AudioProcessingPipelineTest {
     ) : RelevantSleepClassifier {
         var classifyCalls = 0
         var closeCalls = 0
+        var requestedClassIndices = emptySet<Int>()
+            private set
 
         override fun classifyRelevant(
             melSpectrogram: FloatArray,
             relevantClassIndices: Set<Int>
         ): List<ClassificationResult> {
             classifyCalls++
-            return results
+            requestedClassIndices = relevantClassIndices
+            return results.filter { it.index in relevantClassIndices }
         }
 
         override fun close() {

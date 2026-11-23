@@ -8,18 +8,25 @@ import com.example.snorelyzer.ml.recording.AudioClipWriteRequest
 import com.example.snorelyzer.ml.recording.AudioClipWriteResult
 import com.example.snorelyzer.ml.recording.AudioClipWriter
 import com.example.snorelyzer.ml.recording.AudioEventRecorder
+import com.example.snorelyzer.ml.recording.OpusAudioClipWriter
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import com.example.snorelyzer.ml.recording.RecordedEventGroupResult
 import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingMetadataSink
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class SleepTrackingSessionControllerTest {
+    @get:Rule
+    val clips = TemporaryFolder()
+
     private val chunk = FloatArray(32_000)
 
     @Test
@@ -218,6 +225,37 @@ class SleepTrackingSessionControllerTest {
         val state = checkNotNull(stateDuringClipWrite)
         assertFalse(state.isRunning)
         assertEquals(StoppedSessionSave("session-1000", SessionSaveStatus.Saving), state.explicitlyStoppedSession)
+    }
+
+    @Test
+    fun explicitStopSavesTheOpenEpisodeAsWavAfterEarlierOpusClips() {
+        val event = AudioProcessingResult.Classified(
+            windowStartMillis = 1_000L,
+            gateDecision = gateDecision(shouldInfer = true),
+            groupResults = listOf(snoringResult),
+            occurringGroupResults = listOf(snoringResult)
+        )
+        val results = ArrayDeque<AudioProcessingResult>(listOf(event))
+        val sink = FakeRecordingMetadataSink()
+        val writer = OpusAudioClipWriter(clips.root, encode = { file, _ -> file.writeText("encoded audio") })
+        val controller = controller(FakeSleepAudioProcessor(results), sink, writer)
+        controller.startSession(startedAtMillis = 1_000L)
+
+        for (second in 1..21) {
+            controller.onAudioChunk(chunk, chunkStartMillis = second * 1_000L)
+        }
+        assertEquals("opus", File(checkNotNull(sink.completedEpisodes.single().filePath)).extension)
+
+        results.addLast(event.copy(windowStartMillis = 22_000L))
+        controller.onAudioChunk(chunk, chunkStartMillis = 22_000L)
+        controller.stopSession(save = true, endedAtMillis = 23_000L, explicitlyRequestedSave = true)
+
+        assertEquals(2, sink.completedSessions.single().completedEpisodeCount)
+        val finalEpisode = sink.completedEpisodes.last()
+        assertEquals(setOf(RecordedEventGroup.Snoring), finalEpisode.groups)
+        val finalClip = File(checkNotNull(finalEpisode.filePath))
+        assertEquals("wav", finalClip.extension)
+        assertEquals("RIFF", finalClip.inputStream().use { it.readNBytes(4).decodeToString() })
     }
 
     @Test

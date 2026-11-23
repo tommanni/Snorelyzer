@@ -5,6 +5,7 @@ import com.example.snorelyzer.ml.recording.RecordedEventCatalog
 import com.example.snorelyzer.ml.recording.RecordedEventConfig
 import com.example.snorelyzer.ml.recording.RecordedEventGroupResult
 import com.example.snorelyzer.ml.recording.displayLabel
+import java.util.Locale
 
 interface MelSpectrogramProcessor {
     fun reset()
@@ -65,6 +66,13 @@ class AudioProcessingPipeline(
     private val audioBuffer = FloatArray(totalSamples)
     private val mlInputBuffer = FloatArray(totalSamples)
     private val paddedMLBuffer = FloatArray(totalSamples)
+    private val respiratoryScoreLabels = mapOf(
+        RecordedEventCatalog.GASP_CLASS_INDEX to "Gasp",
+        46 to "Snort",
+        50 to "Sniff",
+        RecordedEventCatalog.BREATHING_CLASS_INDEX to "Breathing"
+    )
+    private val inferenceClassIndices = RecordedEventCatalog.relevantClassIndices + respiratoryScoreLabels.keys
 
     private var validSamples = 0
     private var writeIndex = 0
@@ -118,12 +126,9 @@ class AudioProcessingPipeline(
             val t0 = System.nanoTime()
             val melTensor = audioProcessor.process(finalMLInput)
             val t1 = System.nanoTime()
-            val relevantResults = classifier.classifyRelevant(
-                melTensor,
-                RecordedEventCatalog.relevantClassIndices
-            )
+            val classificationResults = classifier.classifyRelevant(melTensor, inferenceClassIndices)
             val groupResults = RecordedEventCatalog.aggregate(
-                relevantResults,
+                classificationResults,
                 recordedEventConfig
             )
             // Protect below the recording threshold too. These sigmoid scores are
@@ -138,6 +143,7 @@ class AudioProcessingPipeline(
             val t2 = System.nanoTime()
             logClassificationTiming(t0, t1, t2)
             logClassificationResults(start, groupResults)
+            logRespiratoryScores(classificationResults)
             AudioProcessingResult.Classified(
                 windowStartMillis = windowStartMillis,
                 gateDecision = gateDecision,
@@ -212,6 +218,15 @@ class AudioProcessingPipeline(
             }
         }
         logDebug("SleepTracker", logMsg)
+    }
+
+    private fun logRespiratoryScores(results: List<ClassificationResult>) {
+        val scores = respiratoryScoreLabels.entries.joinToString(" | ") { (index, label) ->
+            val probability = results.firstOrNull { it.index == index }?.probability
+            val score = probability?.let { "%.4f".format(Locale.ROOT, it) } ?: "n/a"
+            "$label=$score"
+        }
+        logDebug("SleepTracker", "Respiratory scores | $scores")
     }
 
     private fun logDebug(tag: String, message: String) {

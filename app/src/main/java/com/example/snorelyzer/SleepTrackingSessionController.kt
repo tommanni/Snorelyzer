@@ -142,8 +142,9 @@ class SleepTrackingSessionController(
         interrupted: Boolean = false,
         explicitlyRequestedSave: Boolean = false
     ) {
+        val isManualSave = explicitlyRequestedSave && !interrupted
         val sessionId = audioEventRecorder.currentSession?.sessionId
-            ?.takeIf { save && explicitlyRequestedSave && !interrupted }
+            ?.takeIf { save && isManualSave }
         val saveToken = synchronized(saveStatusLock) {
             if (sessionId != null) {
                 _state.value = SleepTrackingSessionState(
@@ -173,7 +174,11 @@ class SleepTrackingSessionController(
 
         try {
             if (save) {
-                audioEventRecorder.stopSession(endedAtMillis, ::reportResult)
+                audioEventRecorder.stopSession(
+                    endedAtMillis = endedAtMillis,
+                    saveFinalClipUncompressed = isManualSave,
+                    onResult = ::reportResult
+                )
             } else {
                 audioEventRecorder.discardSession()
             }

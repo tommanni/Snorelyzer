@@ -19,11 +19,12 @@ data class RecordedEventGroupResult(
 }
 
 object RecordedEventCatalog {
+    const val GASP_CLASS_INDEX = 44
+    const val BREATHING_CLASS_INDEX = 41
+
     val relevantClasses = listOf(
         RelevantClassSpec(43, "Snoring", RecordedEventGroup.Snoring),
-        RelevantClassSpec(44, "Gasp", RecordedEventGroup.Gasp),
-        RelevantClassSpec(46, "Snort", RecordedEventGroup.Gasp),
-        RelevantClassSpec(50, "Sniff", RecordedEventGroup.Gasp),
+        RelevantClassSpec(GASP_CLASS_INDEX, "Gasp", RecordedEventGroup.Gasp),
         RelevantClassSpec(47, "Cough", RecordedEventGroup.Cough),
         RelevantClassSpec(0, "Speech", RecordedEventGroup.SleepTalking),
         RelevantClassSpec(1, "Male speech, man speaking", RecordedEventGroup.SleepTalking),
@@ -35,7 +36,7 @@ object RecordedEventCatalog {
         RelevantClassSpec(70, "Hubbub, speech noise, speech babble", RecordedEventGroup.SleepTalking)
     )
 
-    val relevantClassIndices: Set<Int> = relevantClasses.mapTo(mutableSetOf()) { it.index }
+    val relevantClassIndices: Set<Int> = relevantClasses.mapTo(mutableSetOf(BREATHING_CLASS_INDEX)) { it.index }
 
     private val specsByIndex = relevantClasses.associateBy { it.index }
 
@@ -43,9 +44,15 @@ object RecordedEventCatalog {
         results: List<ClassificationResult>,
         config: RecordedEventConfig = RecordedEventConfig()
     ): List<RecordedEventGroupResult> {
+        val breathingScore = results.firstOrNull { it.index == BREATHING_CLASS_INDEX }?.probability
         return results
             .mapNotNull { result ->
                 val spec = specsByIndex[result.index] ?: return@mapNotNull null
+                if (spec.group == RecordedEventGroup.Gasp &&
+                    breathingScore?.let { result.probability > it } != true
+                ) {
+                    return@mapNotNull null
+                }
                 val threshold = config.thresholds[spec.group] ?: return@mapNotNull null
                 RecordedEventGroupResult(
                     group = spec.group,

@@ -9,8 +9,8 @@ import org.junit.Test
 class RecordedEventCatalogTest {
 
     @Test
-    fun breathingIsNotARelevantClass() {
-        assertFalse(RecordedEventCatalog.relevantClassIndices.contains(41))
+    fun breathingIsRequestedWithoutBecomingARecordedEvent() {
+        assertTrue(RecordedEventCatalog.relevantClassIndices.contains(41))
 
         val results = RecordedEventCatalog.aggregate(
             listOf(ClassificationResult(41, 0.99f))
@@ -20,10 +20,11 @@ class RecordedEventCatalogTest {
     }
 
     @Test
-    fun gaspUmbrellaLabelsAggregateToGasp() {
+    fun directGaspAtThresholdTakesPriorityOverSnortAndSniff() {
         val results = RecordedEventCatalog.aggregate(
             listOf(
-                ClassificationResult(44, 0.26f),
+                ClassificationResult(41, 0.0120f),
+                ClassificationResult(44, 0.10f),
                 ClassificationResult(46, 0.50f),
                 ClassificationResult(50, 0.30f)
             )
@@ -31,9 +32,35 @@ class RecordedEventCatalogTest {
 
         val gasp = results.single()
         assertEquals(RecordedEventGroup.Gasp, gasp.group)
-        assertEquals(0.50f, gasp.probability)
-        assertEquals("Snort", gasp.sourceLabel)
+        assertEquals(0.10f, gasp.probability)
+        assertEquals("Gasp", gasp.sourceLabel)
         assertTrue(gasp.isOccurring)
+    }
+
+    @Test
+    fun gaspNeedsALowerBreathingScore() {
+        val gasp = ClassificationResult(44, 0.1027f)
+        val tiedBreathing = ClassificationResult(41, gasp.probability)
+        val higherBreathing = ClassificationResult(41, 0.2033f)
+
+        assertTrue(RecordedEventCatalog.aggregate(listOf(gasp)).isEmpty())
+        assertTrue(RecordedEventCatalog.aggregate(listOf(gasp, tiedBreathing)).isEmpty())
+        assertTrue(RecordedEventCatalog.aggregate(listOf(gasp, higherBreathing)).isEmpty())
+    }
+
+    @Test
+    fun snortAndSniffCannotSubstituteForABelowThresholdGasp() {
+        val result = RecordedEventCatalog.aggregate(
+            listOf(
+                ClassificationResult(41, 0.0071f),
+                ClassificationResult(44, 0.0847f),
+                ClassificationResult(46, 0.80f),
+                ClassificationResult(50, 0.90f)
+            )
+        ).single()
+
+        assertEquals(0.0847f, result.probability)
+        assertFalse(result.isOccurring)
     }
 
     @Test
