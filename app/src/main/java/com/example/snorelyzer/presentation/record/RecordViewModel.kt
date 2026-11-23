@@ -3,6 +3,7 @@ package com.example.snorelyzer.presentation.record
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.snorelyzer.DetectedClassUi
+import com.example.snorelyzer.SessionSaveStatus
 import com.example.snorelyzer.SleepTrackingSessionStateSource
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +21,8 @@ data class RecordState(
     val stopTrackingHoldResetKey: Int = 0,
     val isReconnecting: Boolean = false,
     val interruptedAtMillis: Long? = null,
-    val hasSaveFailure: Boolean = false
+    val hasSaveFailure: Boolean = false,
+    val isSavingSession: Boolean = false
 )
 
 sealed interface RecordAction {
@@ -59,7 +61,8 @@ class RecordViewModel(
                         sessionStartedAtMillis = sessionState.sessionStartedAtMillis,
                         isReconnecting = sessionState.isReconnecting,
                         interruptedAtMillis = sessionState.interruptedAtMillis,
-                        hasSaveFailure = sessionState.hasSaveFailure
+                        hasSaveFailure = sessionState.hasSaveFailure,
+                        isSavingSession = sessionState.explicitlyStoppedSession?.status == SessionSaveStatus.Saving
                     )
                 }
             }
@@ -68,7 +71,9 @@ class RecordViewModel(
 
     fun onAction(action: RecordAction) {
         when (action) {
-            RecordAction.OnStartClick -> sendEvent(RecordEvent.RequestRecordingPermission)
+            RecordAction.OnStartClick -> {
+                if (!state.value.isSavingSession) sendEvent(RecordEvent.RequestRecordingPermission)
+            }
             RecordAction.OnStopClick -> handleStopClick()
             RecordAction.OnKeepRecordingClick -> {
                 _state.update {
@@ -84,7 +89,7 @@ class RecordViewModel(
                 sendEvent(RecordEvent.ShowRecordingDiscardedNotification)
             }
             is RecordAction.OnRecordingPermissionResult -> {
-                if (action.granted) {
+                if (action.granted && !state.value.isSavingSession) {
                     sendEvent(RecordEvent.StartRecordingService)
                 }
             }

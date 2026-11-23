@@ -144,7 +144,16 @@ class SleepTrackingSessionController(
     ) {
         val sessionId = audioEventRecorder.currentSession?.sessionId
             ?.takeIf { save && explicitlyRequestedSave && !interrupted }
-        val saveToken = synchronized(saveStatusLock) { saveStatusSession }
+        val saveToken = synchronized(saveStatusLock) {
+            if (sessionId != null) {
+                _state.value = SleepTrackingSessionState(
+                    latestStatus = "Stopped",
+                    hasSaveFailure = _state.value.hasSaveFailure,
+                    explicitlyStoppedSession = StoppedSessionSave(sessionId, SessionSaveStatus.Saving)
+                )
+            }
+            saveStatusSession
+        }
         var status = SessionSaveStatus.Saving
 
         fun reportResult(saved: Boolean) {

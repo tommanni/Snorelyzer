@@ -168,6 +168,7 @@ fun RecordScreen(
         ) {
             Button(
                 onClick = { onAction(RecordAction.OnStartClick) },
+                enabled = !state.isSavingSession,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 56.dp),

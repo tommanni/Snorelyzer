@@ -197,6 +197,30 @@ class SleepTrackingSessionControllerTest {
     }
 
     @Test
+    fun explicitStopCanNavigateWhileTheLastClipIsStillBeingSaved() {
+        val result = AudioProcessingResult.Classified(
+            windowStartMillis = 1_000L,
+            gateDecision = gateDecision(shouldInfer = true),
+            groupResults = listOf(snoringResult),
+            occurringGroupResults = listOf(snoringResult)
+        )
+        val pipeline = FakeSleepAudioProcessor(results = ArrayDeque(listOf(result)))
+        var stateDuringClipWrite: SleepTrackingSessionState? = null
+        lateinit var controller: SleepTrackingSessionController
+        controller = controller(pipeline = pipeline, writer = FakeAudioClipWriter {
+            stateDuringClipWrite = controller.state.value
+        })
+        controller.startSession(startedAtMillis = 1_000L)
+        controller.onAudioChunk(chunk, chunkStartMillis = 1_000L)
+
+        controller.stopSession(save = true, endedAtMillis = 2_000L, explicitlyRequestedSave = true)
+
+        val state = checkNotNull(stateDuringClipWrite)
+        assertFalse(state.isRunning)
+        assertEquals(StoppedSessionSave("session-1000", SessionSaveStatus.Saving), state.explicitlyStoppedSession)
+    }
+
+    @Test
     fun explicitStopPublishesSessionIdBeforeTheSaveFinishes() {
         val sink = FakeRecordingMetadataSink()
         val controller = controller(sink = sink)
@@ -233,11 +257,12 @@ class SleepTrackingSessionControllerTest {
 
     private fun controller(
         pipeline: FakeSleepAudioProcessor = FakeSleepAudioProcessor(),
-        sink: FakeRecordingMetadataSink = FakeRecordingMetadataSink()
+        sink: FakeRecordingMetadataSink = FakeRecordingMetadataSink(),
+        writer: AudioClipWriter = FakeAudioClipWriter()
     ): SleepTrackingSessionController {
         return SleepTrackingSessionController(
             audioEventRecorder = AudioEventRecorder(
-                clipWriter = FakeAudioClipWriter(),
+                clipWriter = writer,
                 metadataSink = sink
             ),
             audioProcessingPipelineFactory = { pipeline }
@@ -324,8 +349,9 @@ class SleepTrackingSessionControllerTest {
         }
     }
 
-    private class FakeAudioClipWriter : AudioClipWriter {
+    private class FakeAudioClipWriter(private val onWrite: () -> Unit = {}) : AudioClipWriter {
         override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult {
+            onWrite()
             return AudioClipWriteResult(
                 filePath = "fake/${request.episodeId}.wav",
                 sampleRate = request.sampleRate,
