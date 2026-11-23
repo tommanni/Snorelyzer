@@ -26,7 +26,7 @@ data class RecordedEventConfig(
         RecordedEventGroup.Snoring to 0.15f,
         RecordedEventGroup.Gasp to 0.10f,
         RecordedEventGroup.Cough to 0.25f,
-        RecordedEventGroup.SleepTalking to 0.25f
+        RecordedEventGroup.SleepTalking to 0.35f
     ),
     val postEventPadMillis: Long = 4_000L,
     val rollingBufferDurationMillis: Long = 330_000L,
