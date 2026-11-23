@@ -2,6 +2,8 @@ package com.example.snorelyzer.ml.recording
 
 import android.util.Log
 import java.time.ZoneId
+import java.util.concurrent.Executor
+import java.util.concurrent.FutureTask
 
 enum class RecordedEventGroup {
     Snoring,
@@ -81,7 +83,8 @@ object NoOpRecordingMetadataSink : RecordingMetadataSink {
 class AudioEventRecorder(
     val config: RecordedEventConfig = RecordedEventConfig(),
     private val clipWriter: AudioClipWriter,
-    private val metadataSink: RecordingMetadataSink = NoOpRecordingMetadataSink
+    private val metadataSink: RecordingMetadataSink = NoOpRecordingMetadataSink,
+    private val clipWriteExecutor: Executor = Executor(Runnable::run)
 ) {
     private val rollingBuffer = RollingAudioBuffer(
         sampleRate = config.sampleRate,
@@ -100,6 +103,7 @@ class AudioEventRecorder(
     private var state: RecorderState = RecorderState.Idle
     private val activeSpans = mutableMapOf<RecordedEventGroup, ActiveSpan>()
     private val completedEpisodes = mutableListOf<RecordingEpisodeMetadata>()
+    private val pendingClips = ArrayDeque<FutureTask<RecordingEpisodeMetadata?>>()
 
     private var nextEpisodeNumber = 1
     private val segmentDurationMillis = minOf(
@@ -131,6 +135,7 @@ class AudioEventRecorder(
     }
 
     fun onAudioChunk(chunk: FloatArray, chunkStartMillis: Long) {
+        publishSavedClips()
         if (chunk.isEmpty()) return
         rollingBuffer.append(chunk, chunkStartMillis)
     }
@@ -189,6 +194,7 @@ class AudioEventRecorder(
 
     fun stopSession(endedAtMillis: Long, onResult: (saved: Boolean) -> Unit = {}) {
         closeActiveEpisode()
+        publishSavedClips(waitForAll = true)
         val completedSession = session?.copy(
             endedAtMillis = endedAtMillis,
             completedEpisodeCount = completedEpisodes.size
@@ -211,6 +217,10 @@ class AudioEventRecorder(
     }
 
     fun reset() {
+        // Wait for any in-flight file writes before removing their output.
+        while (pendingClips.isNotEmpty()) {
+            pendingClips.removeFirst().get()?.filePath?.let(clipWriter::deleteClip)
+        }
         session = null
         onSaveFailure = {}
         activeEpisode = null
@@ -307,30 +317,21 @@ class AudioEventRecorder(
             bufferedSamples.copyOfRange(bounds.startSample, bounds.endSampleExclusive)
         }
         val episodeId = "${currentSession.sessionId}-episode-${nextEpisodeNumber++}"
-        val writeResult = try {
-            clipWriter.writeClip(
-                AudioClipWriteRequest(
-                    episodeId = episodeId,
-                    sessionId = currentSession.sessionId,
-                    samples = samples,
-                    sampleRate = config.sampleRate,
-                    clipStartMillis = clipBoundary.startMillis,
-                    clipEndMillis = clipBoundary.endMillis
-                )
-            )
-        } catch (error: Exception) {
-            onSaveFailure()
-            runCatching { Log.e("AudioEventRecorder", "Failed to write WAV for $episodeId", error) }
-            return
-        }
-
+        val request = AudioClipWriteRequest(
+            episodeId = episodeId,
+            sessionId = currentSession.sessionId,
+            samples = samples,
+            sampleRate = config.sampleRate,
+            clipStartMillis = clipBoundary.startMillis,
+            clipEndMillis = clipBoundary.endMillis
+        )
         val spans = (episode.eventSpans + activeSpans.values.map {
             it.toMetadata(config.postEventPadMillis)
         }).mapNotNull { it.clippedTo(bufferedBoundary) }
         val peakProbabilities = spans.groupingBy { it.group }.fold(0f) { peak, span ->
             maxOf(peak, span.peakProbability)
         }
-        completedEpisodes += RecordingEpisodeMetadata(
+        val metadata = RecordingEpisodeMetadata(
             episodeId = episodeId,
             sessionId = currentSession.sessionId,
             clipStartMillis = clipBoundary.startMillis,
@@ -338,11 +339,43 @@ class AudioEventRecorder(
             groups = peakProbabilities.keys,
             eventSpans = spans.mapNotNull { it.clippedTo(clipBoundary) },
             peakProbabilities = peakProbabilities,
-            sampleRate = writeResult.sampleRate,
-            durationMillis = writeResult.durationMillis,
-            filePath = writeResult.filePath
-        ).also { metadataSink.onEpisodeCompleted(it, onSaveFailure) }
-        session = currentSession.copy(completedEpisodeCount = completedEpisodes.size)
+            sampleRate = request.sampleRate,
+            durationMillis = request.samples.size * 1_000L / request.sampleRate
+        )
+        // Prefer the fast WAV path when saves are backing up. Both formats are written off capture.
+        val useWav = pendingClips.size >= 2
+        val save = FutureTask {
+            writeClip(metadata) {
+                if (useWav) clipWriter.writeUncompressedClip(request) else clipWriter.writeClip(request)
+            }
+        }
+        clipWriteExecutor.execute(save)
+        pendingClips += save
+        publishSavedClips()
+    }
+
+    private inline fun writeClip(
+        metadata: RecordingEpisodeMetadata,
+        write: () -> AudioClipWriteResult
+    ): RecordingEpisodeMetadata? = try {
+        val result = write()
+        metadata.copy(sampleRate = result.sampleRate, durationMillis = result.durationMillis, filePath = result.filePath)
+    } catch (error: Exception) {
+        runCatching { Log.e("AudioEventRecorder", "Failed to write clip ${metadata.episodeId}", error) }
+        null
+    }
+
+    private fun publishSavedClips(waitForAll: Boolean = false) {
+        while (pendingClips.firstOrNull()?.let { waitForAll || it.isDone } == true) {
+            val episode = pendingClips.removeFirst().get()
+            if (episode == null) {
+                onSaveFailure()
+            } else {
+                completedEpisodes += episode
+                metadataSink.onEpisodeCompleted(episode, onSaveFailure)
+                session = session?.copy(completedEpisodeCount = completedEpisodes.size)
+            }
+        }
     }
 
     private fun EventSpanMetadata.clippedTo(boundary: ClipBoundary): EventSpanMetadata? {

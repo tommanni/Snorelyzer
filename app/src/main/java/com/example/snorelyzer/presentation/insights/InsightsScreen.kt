@@ -143,14 +143,16 @@ fun InsightsRoot(
         val destination = uri?.let { DocumentAudioExportDestination(context.applicationContext.contentResolver, it) }
         sessionViewModel.onAction(SessionInsightsAction.OnExportDestinationResult(destination))
     }
-    val saveWav = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/wav"), onExportResult)
-    val saveZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip"), onExportResult)
+    val saveWav = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AudioExportFormat.Wav.mimeType), onExportResult)
+    val saveOpus = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AudioExportFormat.Opus.mimeType), onExportResult)
+    val saveZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AudioExportFormat.Zip.mimeType), onExportResult)
     LaunchedEffect(sessionViewModel.events, resources, snackbarHostState) {
         sessionViewModel.events.collect { event ->
             val snackbar = when (event) {
                 is SessionInsightsEvent.ChooseExportDestination -> {
                     val launcher = when (event.format) {
                         AudioExportFormat.Wav -> saveWav
+                        AudioExportFormat.Opus -> saveOpus
                         AudioExportFormat.Zip -> saveZip
                     }
                     try {
@@ -164,7 +166,7 @@ fun InsightsRoot(
                 }
                 is SessionInsightsEvent.AudioSaved -> {
                     val message = when {
-                        event.format == AudioExportFormat.Wav -> resources.getString(R.string.insights_clip_saved)
+                        event.format != AudioExportFormat.Zip -> resources.getString(R.string.insights_clip_saved)
                         event.skipped > 0 -> resources.getString(R.string.insights_export_partial, event.saved, event.skipped)
                         else -> resources.getQuantityString(R.plurals.insights_clips_exported, event.saved, event.saved)
                     }

@@ -5,33 +5,18 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import kotlin.math.roundToInt
 
 internal class WavAudioClipWriter internal constructor(
     private val recordingsDir: File
 ) : AudioClipWriter {
-    constructor(context: Context) : this(File(context.filesDir, RECORDINGS_DIR))
+    constructor(context: Context) : this(recordingsDirectory(context))
 
-    override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult {
-        recordingsDir.mkdirs()
-        val file = File(recordingsDir, request.fileName())
-        val temporaryFile = File.createTempFile("clip-", ".tmp", recordingsDir)
-        try {
-            FileOutputStream(temporaryFile).use { output ->
+    override fun writeClip(request: AudioClipWriteRequest): AudioClipWriteResult =
+        writeEncodedClip(recordingsDir, request, AudioClipFormat.Wav) { file ->
+            FileOutputStream(file).use { output ->
                 writeWav(output, request.samples, request.sampleRate)
             }
-            Files.move(temporaryFile.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        } finally {
-            temporaryFile.delete()
         }
-        return AudioClipWriteResult(
-            filePath = file.absolutePath,
-            sampleRate = request.sampleRate,
-            durationMillis = request.samples.size * 1_000L / request.sampleRate
-        )
-    }
 
     override fun deleteClip(filePath: String): Boolean {
         val file = File(filePath)
@@ -45,10 +30,10 @@ internal class WavAudioClipWriter internal constructor(
     }
 
     override fun storedClips(): List<StoredAudioClip> = recordingsDir.listFiles().orEmpty().mapNotNull { file ->
-        val match = CLIP_NAME.matchEntire(file.name) ?: return@mapNotNull null
+        if (!file.isFile || AudioClipFormat.fromFile(file) == null) return@mapNotNull null
+        val match = CLIP_NAME.matchEntire(file.nameWithoutExtension) ?: return@mapNotNull null
         val start = match.groupValues[2].toLongOrNull() ?: return@mapNotNull null
         val end = match.groupValues[3].toLongOrNull() ?: return@mapNotNull null
-        if (!file.isFile) return@mapNotNull null
         StoredAudioClip(match.groupValues[1], start, end, file.absolutePath)
     }
 
@@ -90,23 +75,13 @@ internal class WavAudioClipWriter internal constructor(
         output.write(sampleBytes.array(), 0, sampleBytes.position())
     }
 
-    private fun AudioClipWriteRequest.fileName(): String {
-        return "${sessionId}_${episodeId}_${clipStartMillis}_${clipEndMillis}.wav"
-    }
-
     private fun ByteBuffer.putAscii(value: String): ByteBuffer {
         value.forEach { char -> put(char.code.toByte()) }
         return this
     }
 
-    private fun Float.toPcm16(): Short {
-        val clamped = coerceIn(-1f, 1f)
-        return (clamped * Short.MAX_VALUE).roundToInt().toShort()
-    }
-
     private companion object {
-        const val RECORDINGS_DIR = "recordings"
-        val CLIP_NAME = Regex("(session-(-?\\d+))_\\1-episode-\\d+_-?\\d+_(-?\\d+)\\.wav")
+        val CLIP_NAME = Regex("(session-(-?\\d+))_\\1-episode-\\d+_-?\\d+_(-?\\d+)")
         const val CHANNEL_COUNT = 1
         const val BITS_PER_SAMPLE = 16
         const val PCM_BUFFER_BYTES = 16 * 1024

@@ -6,7 +6,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
-private const val PeakCount = 96
+internal const val WaveformPeakCount = 96
 private const val BytesPerSample = 2
 
 /** Reads the mono, 16-bit PCM format produced by [WavAudioClipWriter]. */
@@ -47,7 +47,7 @@ internal suspend fun readWavPeaks(file: File): List<Float>? = RandomAccessFile(f
 }
 
 private suspend fun RandomAccessFile.readPeaks(sampleCount: Long): List<Float> {
-    val peaks = IntArray(minOf(PeakCount.toLong(), sampleCount).toInt())
+    val peaks = WaveformPeaks(sampleCount)
     val buffer = ByteArray(16 * 1024)
     val coroutineContext = currentCoroutineContext()
     var sampleIndex = 0L
@@ -57,12 +57,25 @@ private suspend fun RandomAccessFile.readPeaks(sampleCount: Long): List<Float> {
         readFully(buffer, 0, byteCount)
         for (offset in 0 until byteCount step BytesPerSample) {
             val sample = (buffer[offset].toInt() and 0xff) or (buffer[offset + 1].toInt() shl 8)
-            val bucket = (sampleIndex * peaks.size / sampleCount).toInt()
-            peaks[bucket] = maxOf(peaks[bucket], abs(sample))
+            peaks.add(sample)
             sampleIndex++
         }
     }
-    return peaks.map { it / 32_768f }
+    return peaks.values()
+}
+
+internal class WaveformPeaks(private val sampleCount: Long) {
+    private val peaks = IntArray(minOf(WaveformPeakCount.toLong(), sampleCount).toInt())
+    private var index = 0L
+
+    fun add(sample: Int) {
+        if (index >= sampleCount) return
+        val bucket = (index * peaks.size / sampleCount).toInt()
+        peaks[bucket] = maxOf(peaks[bucket], abs(sample))
+        index++
+    }
+
+    fun values(): List<Float> = peaks.map { it / 32_768f }
 }
 
 private fun RandomAccessFile.readChunkSize(): Long = Integer.reverseBytes(readInt()).toLong() and 0xffffffffL

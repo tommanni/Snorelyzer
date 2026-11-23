@@ -26,14 +26,17 @@ import com.example.snorelyzer.ml.RelevantSleepClassifier
 import com.example.snorelyzer.ml.SleepClassifier
 import com.example.snorelyzer.ml.recording.AudioClipWriter
 import com.example.snorelyzer.ml.recording.AudioEventRecorder
+import com.example.snorelyzer.ml.recording.OpusAudioClipWriter
 import com.example.snorelyzer.ml.recording.RecordedEventConfig
 import com.example.snorelyzer.ml.recording.RecordingMetadataSink
-import com.example.snorelyzer.ml.recording.WavAudioClipWriter
 import com.example.snorelyzer.presentation.insights.AnalyticsInsightsViewModel
 import com.example.snorelyzer.presentation.insights.InsightsViewModel
 import com.example.snorelyzer.presentation.insights.SessionInsightsViewModel
 import com.example.snorelyzer.presentation.record.RecordViewModel
 import com.example.snorelyzer.presentation.settings.SettingsViewModel
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.factoryOf
 import org.koin.core.module.dsl.singleOf
@@ -77,8 +80,13 @@ val appModule = module {
             recordedEventConfig = get()
         )
     }
-    single<AudioClipWriter> { WavAudioClipWriter(androidContext()) }
-    factory { AudioEventRecorder(clipWriter = get(), metadataSink = get()) }
+    single<AudioClipWriter> { OpusAudioClipWriter(androidContext()) }
+    factory {
+        val clipWriteExecutor = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, LinkedBlockingQueue()).apply {
+            allowCoreThreadTimeOut(true)
+        }
+        AudioEventRecorder(clipWriter = get(), metadataSink = get(), clipWriteExecutor = clipWriteExecutor)
+    }
     single { RecordingInterruptionStore(androidContext()) }
     single {
         SleepTrackingSessionController(

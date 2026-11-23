@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.filters.SdkSuppress
 import com.example.snorelyzer.data.local.RecordingEpisodeEntity
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionEntity
@@ -32,6 +33,7 @@ import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.data.local.SleepRecordingLocalDataSource
 import com.example.snorelyzer.ml.recording.AudioClipWriteRequest
+import com.example.snorelyzer.ml.recording.OpusAudioClipWriter
 import com.example.snorelyzer.ml.recording.RecordingEpisodeMetadata
 import com.example.snorelyzer.ml.recording.RecordingSessionMetadata
 import com.example.snorelyzer.ml.recording.WavAudioClipWriter
@@ -41,6 +43,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
@@ -49,25 +52,33 @@ class EpisodeWaveformTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
-    @Suppress("DEPRECATION") // Window flags also support the app's API 26 minimum.
     @Test
-    fun tappingWaveformCuesPlaybackAndThePlayheadFollowsThePlayer() {
+    fun tappingWaveformCuesPlaybackAndThePlayheadFollowsThePlayer() = exerciseWaveform(opus = false)
+
+    @Test
+    @SdkSuppress(minSdkVersion = 29)
+    fun tappingOpusWaveformSeeksAndPlaysInAMixedSession() = exerciseWaveform(opus = true)
+
+    @Suppress("DEPRECATION") // Window flags also support the app's API 26 minimum.
+    private fun exerciseWaveform(opus: Boolean) {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val clips = Files.createTempDirectory(context.cacheDir.toPath(), "waveform-test").toFile()
         val store = ViewModelStore()
         try {
-            val writer = WavAudioClipWriter(clips)
             val episodes = listOf("first", "second").map { id ->
+                val useOpus = opus && id == "first"
+                val writer = if (useOpus) OpusAudioClipWriter(clips) else WavAudioClipWriter(clips)
                 val clip = writer.writeClip(
                     AudioClipWriteRequest(
                         sessionId = "session",
                         episodeId = id,
-                        samples = FloatArray(64_000),
-                        sampleRate = 16_000,
+                        samples = FloatArray(128_000),
+                        sampleRate = 32_000,
                         clipStartMillis = 0L,
                         clipEndMillis = 4_000L
                     )
                 )
+                assertEquals(if (useOpus) "opus" else "wav", clip.filePath.substringAfterLast('.'))
                 RecordingEpisodeWithDetails(
                     episode = RecordingEpisodeEntity(
                         episodeId = id,

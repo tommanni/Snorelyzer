@@ -162,6 +162,7 @@ class SleepTrackerService : Service() {
                     nowMillis()
                 }
                 try {
+                    if (!recoveryWakeLock.isHeld) recoveryWakeLock.acquire(RECOVERY_WAKE_LOCK_TIMEOUT_MILLIS)
                     sessionController.stopSession(
                         save = action != ACTION_STOP_DISCARD && (!interrupted || lastCapturedAtMillis != null),
                         endedAtMillis = endedAtMillis,

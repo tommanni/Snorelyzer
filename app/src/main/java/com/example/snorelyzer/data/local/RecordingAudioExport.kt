@@ -1,5 +1,6 @@
 package com.example.snorelyzer.data.local
 
+import com.example.snorelyzer.ml.recording.AudioClipFormat
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -18,7 +19,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-enum class AudioExportFormat { Wav, Zip }
+enum class AudioExportFormat(val extension: String, val mimeType: String) {
+    Wav(AudioClipFormat.Wav.extension, AudioClipFormat.Wav.mimeType),
+    Opus(AudioClipFormat.Opus.extension, AudioClipFormat.Opus.mimeType),
+    Zip("zip", "application/zip")
+}
 
 interface AudioExportDestination {
     fun open(): OutputStream
@@ -68,7 +73,7 @@ internal class RecordingAudioExport private constructor(
             }
         }
         return when (format) {
-            AudioExportFormat.Wav -> {
+            AudioExportFormat.Wav, AudioExportFormat.Opus -> {
                 val input = clips.single().file?.openClip() ?: return 0
                 input.use {
                     destination.open().use { output -> copyClip(input, output) }
@@ -98,11 +103,13 @@ internal class RecordingAudioExport private constructor(
         private val clipTimestamp = DateTimeFormatter.ofPattern("uuuu-MM-dd_HH-mm-ss-SSS", Locale.ROOT)
 
         fun single(episode: RecordingEpisodeEntity, zoneId: ZoneId): RecordingAudioExport {
-            val fileName = "${episode.clipBaseName(zoneId)}.wav"
+            val file = episode.filePath?.let(::File)
+            val format = file.audioFormat()
+            val fileName = "${episode.clipBaseName(zoneId)}.${format.extension}"
             return RecordingAudioExport(
                 fileName = fileName,
-                format = AudioExportFormat.Wav,
-                clips = listOf(Clip(episode.filePath?.let(::File), fileName))
+                format = format,
+                clips = listOf(Clip(file, fileName))
             )
         }
 
@@ -112,11 +119,18 @@ internal class RecordingAudioExport private constructor(
                 session.episodes.sortedBy { it.episode.clipStartMillis }.mapIndexed { index, details ->
                     val episode = details.episode
                     val suffix = (index + 1).toString().padStart(3, '0')
-                    Clip(episode.filePath?.let(::File), "$folder/${episode.clipBaseName(zoneId)}-$suffix.wav")
+                    val file = episode.filePath?.let(::File)
+                    Clip(file, "$folder/${episode.clipBaseName(zoneId)}-$suffix.${file.audioFormat().extension}")
                 }
             }
             return RecordingAudioExport("Snorelyzer-${night.date}.zip", AudioExportFormat.Zip, clips)
         }
+
+        private fun File?.audioFormat(): AudioExportFormat =
+            when (this?.let { AudioClipFormat.fromFile(it) }) {
+                AudioClipFormat.Opus -> AudioExportFormat.Opus
+                AudioClipFormat.Wav, null -> AudioExportFormat.Wav
+            }
 
         private fun RecordingEpisodeEntity.clipBaseName(zoneId: ZoneId): String {
             val time = Instant.ofEpochMilli(clipStartMillis).atZone(zoneId)

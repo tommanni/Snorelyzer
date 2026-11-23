@@ -49,13 +49,16 @@ class RecordingAudioRetentionTest {
                 val now = Instant.parse("2026-11-22T07:00:00Z").toEpochMilli()
                 val end = now - Duration.ofDays(10).toMillis()
                 val start = end - 5_000L
+                val sessionId = "session-$start"
                 val clip = File(clips, "clip.wav").apply { writeBytes(byteArrayOf(1)) }
+                val orphan = File(clips, "${sessionId}_${sessionId}-episode-2_${start}_$end.opus")
+                    .apply { writeBytes(byteArrayOf(2)) }
                 dataSource.upsertSession(
-                    RecordingSessionMetadata("session", start, end, recordingZoneId = ZoneOffset.UTC)
+                    RecordingSessionMetadata(sessionId, start, end, recordingZoneId = ZoneOffset.UTC)
                 )
                 dataSource.insertEpisode(
                     RecordingEpisodeMetadata(
-                        "clip", "session", start, end, emptySet(), emptyList(), emptyMap(),
+                        "clip", sessionId, start, end, emptySet(), emptyList(), emptyMap(),
                         sampleRate = 32_000, durationMillis = 5_000L, filePath = clip.absolutePath
                     )
                 )
@@ -64,6 +67,7 @@ class RecordingAudioRetentionTest {
                 assertEquals(AudioRetentionPeriod.ThirtyDays, retention.period.value)
                 assertEquals(AudioCleanupResult.Complete, retention.cleanUp(now))
                 assertTrue(clip.exists())
+                assertTrue(orphan.exists())
                 assertEquals(
                     AudioRetentionChange.ConfirmationRequired,
                     retention.changePeriod(AudioRetentionPeriod.SevenDays, nowMillis = now)
@@ -83,6 +87,7 @@ class RecordingAudioRetentionTest {
                 }
                 assertEquals(AudioCleanupResult.Complete, retention.cleanUp(now))
                 assertFalse(clip.exists())
+                assertFalse(orphan.exists())
                 assertTrue(dataSource.observeSleepNights(ZoneOffset.UTC).first().single().allEpisodes.single().episode.audioExpired)
             } finally {
                 database.close()

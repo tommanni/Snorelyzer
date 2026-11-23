@@ -15,7 +15,7 @@ import com.example.snorelyzer.data.local.RecordingEpisodeEntity
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.data.local.SleepRecordingLocalDataSource
 import com.example.snorelyzer.data.local.discardFailedAudioExport
-import com.example.snorelyzer.ml.recording.readWavPeaks
+import com.example.snorelyzer.ml.recording.readClipPeaks
 import java.io.File
 import java.io.IOException
 import java.time.LocalDate
@@ -506,7 +506,7 @@ class SessionInsightsViewModel(
                         ClipWaveform.MissingFile
                     } else {
                         val peaks = try {
-                            readWavPeaks(file)
+                            readClipPeaks(file)
                         } catch (_: IOException) {
                             null
                         }

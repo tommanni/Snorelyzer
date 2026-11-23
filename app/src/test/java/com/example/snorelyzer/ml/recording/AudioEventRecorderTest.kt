@@ -1,5 +1,6 @@
 package com.example.snorelyzer.ml.recording
 
+import java.util.concurrent.Executor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -345,6 +346,30 @@ class AudioEventRecorderTest {
     }
 
     @Test
+    fun captureContinuesWhileAClipIsQueuedForSaving() {
+        val writer = FakeAudioClipWriter()
+        val sink = FakeRecordingMetadataSink()
+        val saves = ArrayDeque<Runnable>()
+        val recorder = testRecorder(writer = writer, metadataSink = sink, clipWriteExecutor = Executor(saves::addLast))
+
+        recorder.startSession(startedAtMillis = 0)
+        recorder.feedAudio(durationMillis = 40_000)
+        recorder.onClassificationWindow(10_000, 20_000, listOf(groupResult(RecordedEventGroup.Snoring, 0.31f)))
+        recorder.onClassificationWindow(30_000, 40_000, emptyList())
+        recorder.onAudioChunk(FloatArray(1_000) { 0.5f }, 40_000)
+
+        assertEquals(0.5f, recorder.extractBufferedAudio(40_000, 41_000)!!.last())
+        assertTrue(writer.requests.isEmpty())
+        assertTrue(sink.completedEpisodes.isEmpty())
+
+        saves.removeFirst().run()
+        recorder.stopSession(endedAtMillis = 41_000)
+
+        assertEquals("session-0-episode-1", sink.completedEpisodes.single().episodeId)
+        assertEquals(1, sink.completedSessions.single().completedEpisodeCount)
+    }
+
+    @Test
     fun discardSessionDeletesCompletedClipsAndDoesNotCompleteSession() {
         val writer = FakeAudioClipWriter()
         val sink = FakeRecordingMetadataSink()
@@ -469,7 +494,8 @@ class AudioEventRecorderTest {
         bufferDurationMillis: Long = 50_000L,
         maxClipDurationMillis: Long = 5 * 60_000L,
         writer: FakeAudioClipWriter = FakeAudioClipWriter(),
-        metadataSink: RecordingMetadataSink = NoOpRecordingMetadataSink
+        metadataSink: RecordingMetadataSink = NoOpRecordingMetadataSink,
+        clipWriteExecutor: Executor = Executor(Runnable::run)
     ): AudioEventRecorder {
         return AudioEventRecorder(
             config = RecordedEventConfig(
@@ -478,7 +504,8 @@ class AudioEventRecorderTest {
                 sampleRate = 1_000
             ),
             clipWriter = writer,
-            metadataSink = metadataSink
+            metadataSink = metadataSink,
+            clipWriteExecutor = clipWriteExecutor
         )
     }
 
