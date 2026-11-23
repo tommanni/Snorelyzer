@@ -1,23 +1,39 @@
 package com.example.snorelyzer.presentation.insights
 
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class NightDateControlsTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Suppress("DEPRECATION") // Window flags also support the app's API 26 minimum.
+    @Before
+    fun showTestWindow() {
+        val activity = composeRule.activity
+        composeRule.runOnUiThread {
+            activity.window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+        }
+    }
 
     @Test
     fun navigationSkipsMissingNightsAndDisablesAtBoundaries() {
@@ -35,6 +51,23 @@ class NightDateControlsTest {
         composeRule.onNodeWithContentDescription("Previous recorded night").assertIsNotEnabled()
         composeRule.onNodeWithContentDescription("Next recorded night").assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(newest, selected) }
+    }
+
+    @Test
+    fun calendarButtonOpensPicker() {
+        val date = LocalDate.of(2026, 11, 14)
+        var isPickerOpen by mutableStateOf(false)
+        composeRule.setContent {
+            SnorelyzerTheme {
+                NightDateNavigation(date, setOf(date), {}, { isPickerOpen = true })
+                if (isPickerOpen) {
+                    NightDatePickerDialog(date, setOf(date), {}, { isPickerOpen = false })
+                }
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("Choose night").performClick()
+        composeRule.onNodeWithText("Show night").assertIsEnabled()
     }
 
     @Test

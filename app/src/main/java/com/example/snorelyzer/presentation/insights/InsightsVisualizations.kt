@@ -22,24 +22,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.TrendingUp
-import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.GraphicEq
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,24 +43,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.snorelyzer.R
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
+import com.example.snorelyzer.ml.recording.displayLabel
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SessionAnalyticsHeroCard(
+internal fun SessionAnalyticsHeroCard(
     analytics: NightAnalytics,
-    formattedDate: String,
+    timeFormats: InsightsTimeFormats,
     modifier: Modifier = Modifier,
-    dateNavigation: (@Composable () -> Unit)? = null
+    dateNavigation: @Composable () -> Unit
 ) {
     ElevatedCard(
         modifier = modifier
@@ -82,39 +77,8 @@ fun SessionAnalyticsHeroCard(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (dateNavigation != null) {
-                dateNavigation()
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formattedDate,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+            dateNavigation()
 
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Outlined.Bedtime,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Snore Score & Disturbance Hero section
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -134,69 +98,41 @@ fun SessionAnalyticsHeroCard(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Snore Score",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Medium
-                        )
-                        SnoreSeverityBadge(severity = analytics.severity)
-                    }
-
                     Text(
-                        text = analytics.severity.title,
+                        text = stringResource(R.string.insights_sound_score),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    SoundSeverityBadge(severity = analytics.severity)
+                    Text(
+                        text = stringResource(
+                            R.string.insights_disturbance_rate,
+                            analytics.disturbanceRatePerHour
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
-            // Key Metrics 4-tile grid
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MetricTile(
-                        label = "Snoring Time",
-                        value = formatDuration(analytics.totalSnoreDurationMillis),
-                        subtext = "${String.format(Locale.US, "%.1f", analytics.snorePercentage)}% of sleep",
-                        icon = Icons.Outlined.Speed,
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricTile(
-                        label = "Sleep Duration",
-                        value = formatDuration(analytics.totalSleepDurationMillis),
-                        subtext = "${analytics.totalEpisodes} episodes",
-                        icon = Icons.Outlined.Schedule,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MetricTile(
-                        label = "Disturbance Rate",
-                        value = "${String.format(Locale.US, "%.1f", analytics.disturbanceRatePerHour)}/h",
-                        icon = Icons.Outlined.GraphicEq,
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricTile(
-                        label = "Peak Snoring",
-                        value = analytics.peakHourLabel ?: "None",
-                        subtext = if (analytics.longestEpisodeMillis > 0) {
-                            "Longest: ${analytics.longestEpisodeMillis / 1000}s"
-                        } else null,
-                        icon = Icons.AutoMirrored.Outlined.TrendingUp,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MetricTile(
+                    label = "Snoring Time",
+                    value = formatDuration(analytics.totalSnoreDurationMillis),
+                    subtext = "${String.format(Locale.US, "%.1f", analytics.snorePercentage)}% of sleep",
+                    icon = Icons.Outlined.Speed,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricTile(
+                    label = "Sleep Duration",
+                    value = formatDuration(analytics.totalSleepDurationMillis),
+                    icon = Icons.Outlined.Schedule,
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             // Night Acoustic Timeline (Hourly Histogram)
@@ -206,18 +142,22 @@ fun SessionAnalyticsHeroCard(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "Acoustic Timeline",
+                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        if (analytics.peakHourLabel != null) {
+                        analytics.busiestHourStartMillis?.let { hourStartMillis ->
                             Text(
-                                text = "Peak at ${analytics.peakHourLabel}",
+                                text = stringResource(
+                                    R.string.insights_busiest_hour,
+                                    timeFormats.formatMinutes(hourStartMillis)
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
@@ -227,6 +167,7 @@ fun SessionAnalyticsHeroCard(
 
                     AcousticHourlyTimeline(
                         hourlyItems = analytics.hourlyDistribution,
+                        timeFormats = timeFormats,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -323,7 +264,7 @@ fun CircularScoreMeter(
 }
 
 @Composable
-fun SnoreSeverityBadge(
+private fun SoundSeverityBadge(
     severity: SnoreSeverity,
     modifier: Modifier = Modifier
 ) {
@@ -335,7 +276,7 @@ fun SnoreSeverityBadge(
         color = containerColor
     ) {
         Text(
-            text = severity.title,
+            text = stringResource(severity.titleRes),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             color = contentColor,
@@ -398,8 +339,9 @@ private fun MetricTile(
 }
 
 @Composable
-fun AcousticHourlyTimeline(
+private fun AcousticHourlyTimeline(
     hourlyItems: List<HourlyDistributionItem>,
+    timeFormats: InsightsTimeFormats,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -414,7 +356,7 @@ fun AcousticHourlyTimeline(
         verticalAlignment = Alignment.Bottom
     ) {
         hourlyItems.forEach { item ->
-            HourlyTimelineBar(item = item)
+            HourlyTimelineBar(item = item, hourLabel = timeFormats.formatMinutes(item.hourStartMillis))
         }
     }
 }
@@ -422,6 +364,7 @@ fun AcousticHourlyTimeline(
 @Composable
 private fun HourlyTimelineBar(
     item: HourlyDistributionItem,
+    hourLabel: String,
     modifier: Modifier = Modifier
 ) {
     val animatedFraction by animateFloatAsState(
@@ -436,7 +379,7 @@ private fun HourlyTimelineBar(
     val hasHits = item.totalEventsCount > 0
 
     Column(
-        modifier = modifier.width(28.dp),
+        modifier = modifier.widthIn(min = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -473,7 +416,7 @@ private fun HourlyTimelineBar(
         }
 
         Text(
-            text = item.hourLabel,
+            text = hourLabel,
             style = MaterialTheme.typography.labelSmall,
             color = if (hasHits) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
             fontWeight = if (hasHits) FontWeight.Bold else FontWeight.Normal,
@@ -515,7 +458,6 @@ private fun SoundBreakdownPill(
 ) {
     val (containerColor, contentColor) = groupColor(breakdown.group)
     val pct = String.format(Locale.US, "%.0f", breakdown.percentageOfEvents)
-    val duration = formatDuration(breakdown.durationMillis)
 
     Surface(
         modifier = modifier,
@@ -528,13 +470,13 @@ private fun SoundBreakdownPill(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "${groupEmoji(breakdown.group)} ${breakdown.group.name}",
+                text = "${groupEmoji(breakdown.group)} ${breakdown.group.displayLabel()}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 color = contentColor
             )
             Text(
-                text = "$duration ($pct%)",
+                text = "$pct%",
                 style = MaterialTheme.typography.labelSmall,
                 color = contentColor.copy(alpha = 0.85f)
             )
@@ -572,7 +514,7 @@ fun MultiNightTrendCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                SnoreSeverityBadge(severity = analytics.overallSeverity)
+                SoundSeverityBadge(severity = analytics.overallSeverity)
             }
 
             // Trend Column Bar Chart
@@ -603,7 +545,7 @@ fun MultiNightTrendCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 OverviewMetricItem(
-                    label = "Avg. Score",
+                    label = stringResource(R.string.insights_average_sound_score),
                     value = "${analytics.avgSnoreScore}/100"
                 )
                 OverviewMetricItem(
@@ -781,9 +723,11 @@ private fun SessionAnalyticsHeroCardDarkPreview() {
         Surface {
             SessionAnalyticsHeroCard(
                 analytics = samplePreviewAnalytics,
-                formattedDate = "Friday, Nov 6, 2026",
+                timeFormats = rememberInsightsTimeFormats(),
                 modifier = Modifier.padding(16.dp)
-            )
+            ) {
+                NightDateNavigation(previewNightDate, setOf(previewNightDate), {}, {})
+            }
         }
     }
 }
@@ -795,14 +739,21 @@ private fun SessionAnalyticsHeroCardLightPreview() {
         Surface {
             SessionAnalyticsHeroCard(
                 analytics = samplePreviewAnalytics,
-                formattedDate = "Friday, Nov 6, 2026",
+                timeFormats = rememberInsightsTimeFormats(),
                 modifier = Modifier.padding(16.dp)
-            )
+            ) {
+                NightDateNavigation(previewNightDate, setOf(previewNightDate), {}, {})
+            }
         }
     }
 }
 
+private val previewNightDate = LocalDate.of(2026, 11, 6)
+
 private val samplePreviewAnalytics: NightAnalytics by lazy {
+    val firstHour = previewNightDate.atTime(23, 0).atZone(ZoneId.systemDefault())
+    fun hourStart(offset: Long): Long = firstHour.plusHours(offset).toInstant().toEpochMilli()
+
     NightAnalytics(
         totalSleepDurationMillis = 7 * 3600 * 1000L + 25 * 60 * 1000L,
         totalSnoreDurationMillis = 28 * 60 * 1000L,
@@ -811,22 +762,21 @@ private val samplePreviewAnalytics: NightAnalytics by lazy {
         severity = SnoreSeverity.Mild,
         totalEpisodes = 8,
         disturbanceRatePerHour = 1.1f,
-        longestEpisodeMillis = 45000L,
-        peakHourLabel = "3am",
+        busiestHourStartMillis = hourStart(4),
         soundBreakdowns = listOf(
-            SoundGroupBreakdown(RecordedEventGroup.Snoring, 6, 28 * 60 * 1000L, 75f),
-            SoundGroupBreakdown(RecordedEventGroup.Gasp, 1, 15000L, 12.5f),
-            SoundGroupBreakdown(RecordedEventGroup.SleepTalking, 1, 12000L, 12.5f)
+            SoundGroupBreakdown(RecordedEventGroup.Snoring, 6, 75f),
+            SoundGroupBreakdown(RecordedEventGroup.Gasp, 1, 12.5f),
+            SoundGroupBreakdown(RecordedEventGroup.SleepTalking, 1, 12.5f)
         ),
         hourlyDistribution = listOf(
-            HourlyDistributionItem("11pm", 0L, 0, 0L, emptyMap(), null, 0f),
-            HourlyDistributionItem("12am", 0L, 1, 12000L, mapOf(RecordedEventGroup.Snoring to 1), RecordedEventGroup.Snoring, 0.25f),
-            HourlyDistributionItem("1am", 0L, 0, 0L, emptyMap(), null, 0f),
-            HourlyDistributionItem("2am", 0L, 2, 34000L, mapOf(RecordedEventGroup.Snoring to 2), RecordedEventGroup.Snoring, 0.5f),
-            HourlyDistributionItem("3am", 0L, 4, 75000L, mapOf(RecordedEventGroup.Snoring to 3, RecordedEventGroup.Gasp to 1), RecordedEventGroup.Snoring, 1.0f),
-            HourlyDistributionItem("4am", 0L, 1, 20000L, mapOf(RecordedEventGroup.Snoring to 1), RecordedEventGroup.Snoring, 0.25f),
-            HourlyDistributionItem("5am", 0L, 0, 0L, emptyMap(), null, 0f),
-            HourlyDistributionItem("6am", 0L, 0, 0L, emptyMap(), null, 0f)
+            HourlyDistributionItem(hourStart(0), 0, null, 0f),
+            HourlyDistributionItem(hourStart(1), 1, RecordedEventGroup.Snoring, 0.25f),
+            HourlyDistributionItem(hourStart(2), 0, null, 0f),
+            HourlyDistributionItem(hourStart(3), 2, RecordedEventGroup.Snoring, 0.5f),
+            HourlyDistributionItem(hourStart(4), 4, RecordedEventGroup.Snoring, 1f),
+            HourlyDistributionItem(hourStart(5), 1, RecordedEventGroup.Gasp, 0.25f),
+            HourlyDistributionItem(hourStart(6), 0, null, 0f),
+            HourlyDistributionItem(hourStart(7), 0, null, 0f)
         )
     )
 }

@@ -3,19 +3,22 @@ package com.example.snorelyzer.presentation.insights
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DisplayMode
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,29 +31,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.snorelyzer.R
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-
-@Composable
-internal fun NightCalendarButton(
-    selectedDate: LocalDate?,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    val description = selectedDate?.let {
-        "Choose night, ${it.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL))}"
-    } ?: "Choose night"
-    FilledTonalIconButton(onClick = onClick, enabled = enabled) {
-        Icon(Icons.Outlined.CalendarMonth, contentDescription = description)
-    }
-}
 
 @Composable
 internal fun NightDateNavigation(
@@ -65,22 +57,30 @@ internal fun NightDateNavigation(
     val nextDate = remember(availableDates, selectedDate) {
         availableDates.filter { it > selectedDate }.minOrNull()
     }
+    val locale = LocalConfiguration.current.locales[0]
+    val dateLabel = remember(selectedDate, locale) {
+        selectedDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Sleep night",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            TextButton(onClick = onOpenCalendar) {
-                Text(
-                    text = selectedDate.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+        Box(modifier = Modifier.weight(1f)) {
+            FilledTonalButton(
+                onClick = onOpenCalendar,
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CalendarMonth,
+                        contentDescription = stringResource(R.string.insights_choose_night),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(text = dateLabel, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
         IconButton(

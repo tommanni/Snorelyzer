@@ -11,7 +11,7 @@ import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import java.time.LocalDate
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,6 +44,7 @@ class SessionAnalyticsTest {
         assertEquals(0, analytics.totalEpisodes)
         assertEquals(0L, analytics.totalSnoreDurationMillis)
         assertEquals(0f, analytics.snorePercentage, 0.01f)
+        assertNull(analytics.busiestHourStartMillis)
     }
 
     @Test
@@ -102,7 +103,8 @@ class SessionAnalyticsTest {
         assertEquals(10000L, analytics.totalSnoreDurationMillis)
         assertTrue(analytics.snoreScore > 0)
         assertTrue(analytics.hourlyDistribution.isNotEmpty())
-        assertNotNull(analytics.peakHourLabel)
+        val episodeHour = (startMillis + 3600000L) / 3600000L * 3600000L
+        assertEquals(episodeHour, analytics.busiestHourStartMillis)
         assertEquals(2, analytics.soundBreakdowns.size)
     }
 
@@ -190,6 +192,8 @@ class SessionAnalyticsTest {
         // 0% snoring (0 pts) + 1 gasp/hr * 5 (5 pts) + (8 eps / 8 hrs) * 2.5 (2.5 pts) = 7.5 -> round to 8 pts
         assertEquals(8, analytics.snoreScore)
         assertEquals(SnoreSeverity.Quiet, analytics.severity)
+        assertEquals(0L, analytics.totalSnoreDurationMillis)
+        assertEquals(startMillis / 3600000L * 3600000L, analytics.busiestHourStartMillis)
     }
 
     @Test

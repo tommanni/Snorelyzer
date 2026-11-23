@@ -36,6 +36,21 @@
     <string name="settings_delete_recording_active">Wait for sleep tracking to finish, then try again.</string>
     <string name="settings_delete_failed">Couldn’t delete all data. Try again.</string>
     <string name="settings_delete_success">All Snorelyzer data deleted.</string>
+    <string name="insights_choose_night">Choose night</string>
+    <string name="insights_sound_score">Sound Score</string>
+    <string name="insights_average_sound_score">Avg. Sound Score</string>
+    <string name="insights_sound_severity_quiet">Quiet</string>
+    <string name="insights_sound_severity_low">Low disturbance</string>
+    <string name="insights_sound_severity_moderate">Moderate disturbance</string>
+    <string name="insights_sound_severity_high">High disturbance</string>
+    <string name="insights_disturbance_rate">%1$.1f clips/hour</string>
+    <string name="insights_busiest_hour">Busiest hour · %1$s</string>
+    <string name="insights_session_active">Active</string>
+    <string name="insights_session_no_sounds">No sounds detected</string>
+    <plurals name="insights_session_clips">
+        <item quantity="one">%d clip</item>
+        <item quantity="other">%d clips</item>
+    </plurals>
     <string name="insights_seek_clip">Seek audio clip</string>
     <string name="insights_clip_position">%1$s of %2$s</string>
     <string name="insights_audio_missing">Audio file unavailable</string>

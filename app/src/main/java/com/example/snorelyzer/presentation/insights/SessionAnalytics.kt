@@ -1,51 +1,33 @@
 package com.example.snorelyzer.presentation.insights
 
+import androidx.annotation.StringRes
+import com.example.snorelyzer.R
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.roundToInt
 
-enum class SnoreSeverity(
-    val title: String,
-    val description: String
-) {
-    Quiet(
-        title = "Quiet & Restful",
-        description = "Minimal acoustic sleep disturbance detected. Normal healthy sleep."
-    ),
-    Mild(
-        title = "Mild Snoring",
-        description = "Occasional light snoring detected within common healthy variations."
-    ),
-    Moderate(
-        title = "Moderate Snoring",
-        description = "Noticeable snoring frequency. Consider sleeping on your side."
-    ),
-    Severe(
-        title = "High Disturbance",
-        description = "Frequent loud snoring and breathing pauses detected. Track closely."
-    )
+enum class SnoreSeverity(@field:StringRes val titleRes: Int) {
+    Quiet(R.string.insights_sound_severity_quiet),
+    Mild(R.string.insights_sound_severity_low),
+    Moderate(R.string.insights_sound_severity_moderate),
+    Severe(R.string.insights_sound_severity_high)
 }
 
 data class SoundGroupBreakdown(
     val group: RecordedEventGroup,
     val count: Int,
-    val durationMillis: Long,
     val percentageOfEvents: Float
 )
 
 data class HourlyDistributionItem(
-    val hourLabel: String,
     val hourStartMillis: Long,
     val totalEventsCount: Int,
-    val snoreDurationMillis: Long,
-    val groupCounts: Map<RecordedEventGroup, Int>,
     val dominantGroup: RecordedEventGroup?,
     val intensityFraction: Float
 )
@@ -58,8 +40,7 @@ data class NightAnalytics(
     val severity: SnoreSeverity,
     val totalEpisodes: Int,
     val disturbanceRatePerHour: Float,
-    val longestEpisodeMillis: Long,
-    val peakHourLabel: String?,
+    val busiestHourStartMillis: Long?,
     val soundBreakdowns: List<SoundGroupBreakdown>,
     val hourlyDistribution: List<HourlyDistributionItem>
 )
@@ -96,7 +77,6 @@ fun computeNightAnalytics(
 
     var snoreDurationMillis = 0L
     val groupCounts = mutableMapOf<RecordedEventGroup, Int>()
-    val groupDurations = mutableMapOf<RecordedEventGroup, Long>()
     var gaspCount = 0
 
     allEpisodes.forEach { episodeDetails ->
@@ -107,7 +87,6 @@ fun computeNightAnalytics(
             spans.forEach { span ->
                 val spanDuration = (span.endedAtMillis - span.startedAtMillis).coerceAtLeast(0L)
                 groupCounts[span.group] = (groupCounts[span.group] ?: 0) + 1
-                groupDurations[span.group] = (groupDurations[span.group] ?: 0L) + spanDuration
                 if (span.group == RecordedEventGroup.Snoring) {
                     snoreDurationMillis += spanDuration
                 }
@@ -119,7 +98,6 @@ fun computeNightAnalytics(
             episodeDetails.groups.forEach { groupEntity ->
                 val grp = groupEntity.group
                 groupCounts[grp] = (groupCounts[grp] ?: 0) + 1
-                groupDurations[grp] = (groupDurations[grp] ?: 0L) + episode.durationMillis
                 if (grp == RecordedEventGroup.Snoring) {
                     snoreDurationMillis += episode.durationMillis
                 }
@@ -149,17 +127,13 @@ fun computeNightAnalytics(
         else -> SnoreSeverity.Severe
     }
 
-    val longestEpisodeMillis = allEpisodes.maxOfOrNull { it.episode.durationMillis } ?: 0L
-
     val totalGroupHits = groupCounts.values.sum().coerceAtLeast(1)
     val soundBreakdowns = RecordedEventGroup.entries.mapNotNull { group ->
         val count = groupCounts[group] ?: 0
-        val duration = groupDurations[group] ?: 0L
-        if (count > 0 || duration > 0L) {
+        if (count > 0) {
             SoundGroupBreakdown(
                 group = group,
                 count = count,
-                durationMillis = duration,
                 percentageOfEvents = (count.toFloat() / totalGroupHits) * 100f
             )
         } else null
@@ -172,7 +146,6 @@ fun computeNightAnalytics(
 
     val zonedDateTimeStart = Instant.ofEpochMilli(startMillis).atZone(zoneId)
     var cursor = zonedDateTimeStart.withMinute(0).withSecond(0).withNano(0)
-    val hourFormatter = DateTimeFormatter.ofPattern("ha", Locale.getDefault())
 
     var maxHourCount = 0
     while (cursor.toInstant().toEpochMilli() <= endMillis) {
@@ -184,14 +157,10 @@ fun computeNightAnalytics(
         }
 
         val hourGroupCounts = mutableMapOf<RecordedEventGroup, Int>()
-        var hourSnoreDuration = 0L
 
         episodesInHour.forEach { ep ->
             ep.groups.forEach { g ->
                 hourGroupCounts[g.group] = (hourGroupCounts[g.group] ?: 0) + 1
-            }
-            if (ep.groups.any { it.group == RecordedEventGroup.Snoring }) {
-                hourSnoreDuration += ep.episode.durationMillis
             }
         }
 
@@ -201,15 +170,11 @@ fun computeNightAnalytics(
         }
 
         val dominant = hourGroupCounts.maxByOrNull { it.value }?.key
-        val hourLabel = cursor.format(hourFormatter).lowercase(Locale.getDefault())
 
         hourlyItems.add(
             HourlyDistributionItem(
-                hourLabel = hourLabel,
                 hourStartMillis = bucketStart,
                 totalEventsCount = totalHourEvents,
-                snoreDurationMillis = hourSnoreDuration,
-                groupCounts = hourGroupCounts,
                 dominantGroup = dominant,
                 intensityFraction = 0f // Normalized below
             )
@@ -224,10 +189,10 @@ fun computeNightAnalytics(
         item.copy(intensityFraction = fraction)
     }
 
-    val peakHour = normalizedHourly.maxByOrNull { it.totalEventsCount }
-    val peakHourLabel = if (peakHour != null && peakHour.totalEventsCount > 0) {
-        peakHour.hourLabel
-    } else null
+    val busiestHourStartMillis = normalizedHourly
+        .maxByOrNull { it.totalEventsCount }
+        ?.takeIf { it.totalEventsCount > 0 }
+        ?.hourStartMillis
 
     return NightAnalytics(
         totalSleepDurationMillis = totalSleepDuration,
@@ -237,8 +202,7 @@ fun computeNightAnalytics(
         severity = severity,
         totalEpisodes = totalEpisodes,
         disturbanceRatePerHour = disturbanceRatePerHour,
-        longestEpisodeMillis = longestEpisodeMillis,
-        peakHourLabel = peakHourLabel,
+        busiestHourStartMillis = busiestHourStartMillis,
         soundBreakdowns = soundBreakdowns,
         hourlyDistribution = normalizedHourly
     )

@@ -35,9 +35,22 @@ class RecordingAudioExportTest {
     }
 
     @Test
-    fun `night archive groups clips by session and skips absent audio`() = runTest {
+    fun `single Opus export preserves the original bytes and file type`() = runTest {
+        val bytes = byteArrayOf(4, 5, 6)
+        val audio = files.newFile("original.opus").apply { writeBytes(bytes) }
+        val export = RecordingAudioExport.single(clip("first", 0, audio).episode, ZoneOffset.UTC)
+        val destination = TestDestination()
+
+        assertEquals("clip-1970-01-01_00-00-00-000.opus", export.fileName)
+        assertEquals("audio/ogg", export.format.mimeType)
+        assertEquals(1, export.saveTo(destination))
+        assertArrayEquals(bytes, destination.bytes.toByteArray())
+    }
+
+    @Test
+    fun `night archive groups mixed formats by session and skips absent audio`() = runTest {
         val first = files.newFile("first.wav").apply { writeText("first") }
-        val second = files.newFile("second.wav").apply { writeText("second") }
+        val second = files.newFile("second.opus").apply { writeText("second") }
         val sameTimestamp = files.newFile("same-time.wav").apply { writeText("same time") }
         val missing = File(files.root, "missing.wav")
         val night = SleepNight(
@@ -71,7 +84,7 @@ class RecordingAudioExportTest {
             mapOf(
                 "session-01/clip-1970-01-01_00-00-01-000-001.wav" to "first",
                 "session-01/clip-1970-01-01_00-00-01-000-002.wav" to "same time",
-                "session-02/clip-1970-01-01_00-00-07-000-001.wav" to "second"
+                "session-02/clip-1970-01-01_00-00-07-000-001.opus" to "second"
             ),
             entries
         )

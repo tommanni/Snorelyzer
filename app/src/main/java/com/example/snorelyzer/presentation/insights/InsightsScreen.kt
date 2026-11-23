@@ -86,6 +86,7 @@ import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -101,15 +102,14 @@ import com.example.snorelyzer.data.local.DocumentAudioExportDestination
 import com.example.snorelyzer.data.local.EventSpanEntity
 import com.example.snorelyzer.data.local.RecordingEpisodeWithDetails
 import com.example.snorelyzer.data.local.RecordingSessionWithEpisodes
+import com.example.snorelyzer.ml.recording.displayLabel
 import com.example.snorelyzer.data.local.SleepNight
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
 import com.example.snorelyzer.presentation.AppSnackbarVisuals
 import com.example.snorelyzer.presentation.SnackbarTone
 import com.example.snorelyzer.presentation.record.RecordingWarning
 import org.koin.androidx.compose.koinViewModel
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
@@ -292,11 +292,6 @@ fun InsightsScreen(
                 }
             }
             if (state.selectedTab == InsightsTab.Session) {
-                NightCalendarButton(
-                    selectedDate = sessionState.selectedDate,
-                    enabled = !sessionState.isLoading && sessionState.availableDates.isNotEmpty(),
-                    onClick = { onSessionAction(SessionInsightsAction.OnShowDatePicker) }
-                )
                 val night = sessionState.selectedNight
                 if (night?.endedAtMillis != null) {
                     var menuExpanded by remember(sessionState.selectedDate) { mutableStateOf(false) }
@@ -510,6 +505,7 @@ fun SessionInsightsScreen(
     ) {
         val selectedNight = state.selectedNight
         if (selectedNight != null) {
+            val timeFormats = rememberInsightsTimeFormats()
             val waveformViewport = remember { LayoutBoundsHolder() }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().layoutBounds(waveformViewport),
@@ -519,11 +515,9 @@ fun SessionInsightsScreen(
                 item(key = "night_overview_${selectedNight.date}") {
                     val analytics = state.selectedNightAnalytics
                         ?: remember(selectedNight) { computeNightAnalytics(selectedNight) }
-                    val dateFormatter = remember { DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy") }
-                    val formattedDate = remember(selectedNight.date) { selectedNight.date.format(dateFormatter) }
                     SessionAnalyticsHeroCard(
                         analytics = analytics,
-                        formattedDate = formattedDate,
+                        timeFormats = timeFormats,
                         dateNavigation = {
                             NightDateNavigation(
                                 selectedDate = selectedNight.date,
@@ -536,25 +530,15 @@ fun SessionInsightsScreen(
                 }
 
                 item(key = "sessions_header_${selectedNight.date}") {
-                    Row(
+                    Text(
+                        text = "Recording Sessions",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Recording Sessions",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "${selectedNight.sessions.size} ${if (selectedNight.sessions.size == 1) "session" else "sessions"}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
 
                 itemsIndexed(
@@ -565,6 +549,7 @@ fun SessionInsightsScreen(
                     RecordingSessionCard(
                         sessionIndex = index + 1,
                         sessionWithEpisodes = sessionWithEpisodes,
+                        timeFormats = timeFormats,
                         isCollapsed = isCollapsed,
                         canSaveClips = state.audioExport == null && !state.isDeletingNight,
                         expandedEpisodeIds = state.expandedEpisodeIds,
@@ -588,6 +573,7 @@ fun SessionInsightsScreen(
 private fun RecordingSessionCard(
     sessionIndex: Int,
     sessionWithEpisodes: RecordingSessionWithEpisodes,
+    timeFormats: InsightsTimeFormats,
     isCollapsed: Boolean,
     canSaveClips: Boolean,
     expandedEpisodeIds: Set<String>,
@@ -599,12 +585,17 @@ private fun RecordingSessionCard(
 ) {
     val session = sessionWithEpisodes.session
     val episodes = sessionWithEpisodes.episodes
-    val isOngoing = session.endedAtMillis == null
-    val sessionDuration = (session.endedAtMillis ?: System.currentTimeMillis()) - session.startedAtMillis
+    val endMillis = session.endedAtMillis
+    val sessionDuration = (endMillis ?: System.currentTimeMillis()) - session.startedAtMillis
 
-    val startTimeStr = formatTimestamp(session.startedAtMillis, "hh:mm a")
-    val endTimeStr = if (session.endedAtMillis != null) formatTimestamp(session.endedAtMillis, "hh:mm a") else "Ongoing"
+    val startTime = timeFormats.formatMinutes(session.startedAtMillis)
+    val sessionTime = endMillis?.let { "$startTime – ${timeFormats.formatMinutes(it)}" } ?: startTime
     val onToggleCollapse = { onAction(SessionInsightsAction.OnToggleSessionCollapse(session.sessionId)) }
+    val collapseLabel = if (isCollapsed) "Expand session" else "Collapse session"
+    val headerModifier = if (episodes.isEmpty()) Modifier else Modifier.clickable(
+        onClickLabel = collapseLabel,
+        onClick = onToggleCollapse
+    )
 
     OutlinedCard(
         modifier = modifier
@@ -621,9 +612,7 @@ private fun RecordingSessionCard(
         ) {
             // Session Header
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onToggleCollapse),
+                modifier = Modifier.fillMaxWidth().then(headerModifier),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -638,25 +627,19 @@ private fun RecordingSessionCard(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isOngoing) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
+                        if (endMillis == null) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.insights_session_active),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
                             }
-                        ) {
-                            Text(
-                                text = if (isOngoing) "Active" else "Completed",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isOngoing) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
                         }
                     }
 
@@ -673,55 +656,58 @@ private fun RecordingSessionCard(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "$startTimeStr – $endTimeStr  •  ${formatDuration(sessionDuration)}",
+                            text = "$sessionTime  •  ${formatDuration(sessionDuration)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    Text(
-                        text = "${episodes.size} ${if (episodes.size == 1) "episode" else "episodes"} recorded",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                    val clipSummary = when {
+                        episodes.isEmpty() -> stringResource(R.string.insights_session_no_sounds)
+                        isCollapsed -> pluralStringResource(
+                            R.plurals.insights_session_clips,
+                            episodes.size,
+                            episodes.size
+                        )
+                        else -> null
+                    }
+                    if (clipSummary != null) {
+                        Text(
+                            text = clipSummary,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
-                IconButton(onClick = onToggleCollapse) {
+                if (episodes.isNotEmpty()) {
                     Icon(
                         imageVector = if (isCollapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = if (isCollapsed) "Expand session" else "Collapse session",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            AnimatedVisibility(visible = !isCollapsed) {
+            AnimatedVisibility(visible = episodes.isNotEmpty() && !isCollapsed) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                    if (episodes.isEmpty()) {
-                        Text(
-                            text = "No sound events detected in this session.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    } else {
-                        episodes.forEach { episodeDetails ->
-                            val episode = episodeDetails.episode
-                            key(episode.episodeId) {
-                                SleepEpisodeItem(
-                                    episodeDetails = episodeDetails,
-                                    playback = playback,
-                                    waveform = episode.filePath?.let(waveformsByPath::get),
-                                    waveformViewport = waveformViewport,
-                                    isSpansExpanded = episode.episodeId in expandedEpisodeIds,
-                                    canSaveClip = canSaveClips,
-                                    onAction = onAction
-                                )
-                            }
+                    episodes.forEach { episodeDetails ->
+                        val episode = episodeDetails.episode
+                        key(episode.episodeId) {
+                            SleepEpisodeItem(
+                                episodeDetails = episodeDetails,
+                                timeFormats = timeFormats,
+                                playback = playback,
+                                waveform = episode.filePath?.let(waveformsByPath::get),
+                                waveformViewport = waveformViewport,
+                                isSpansExpanded = episode.episodeId in expandedEpisodeIds,
+                                canSaveClip = canSaveClips,
+                                onAction = onAction
+                            )
                         }
                     }
                 }
@@ -733,6 +719,7 @@ private fun RecordingSessionCard(
 @Composable
 private fun SleepEpisodeItem(
     episodeDetails: RecordingEpisodeWithDetails,
+    timeFormats: InsightsTimeFormats,
     playback: () -> EpisodePlaybackState?,
     waveform: ClipWaveform?,
     waveformViewport: LayoutBoundsHolder,
@@ -746,7 +733,9 @@ private fun SleepEpisodeItem(
     }
     val isPlaying = clipPlayback?.isPlaying == true
     val isPlayRequested = clipPlayback?.isPlayRequested == true
-    val startTime = remember(episode.clipStartMillis) { formatTimestamp(episode.clipStartMillis, "hh:mm:ss a") }
+    val startTime = remember(episode.clipStartMillis, timeFormats) {
+        timeFormats.formatSeconds(episode.clipStartMillis)
+    }
     val durationMillis = clipPlayback?.durationMillis ?: episode.durationMillis
     val isAudioMissing = waveform == ClipWaveform.MissingFile
     val hasAudioFile = episode.filePath != null && !isAudioMissing
@@ -931,7 +920,7 @@ private fun SleepEpisodeItem(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         eventSpans.forEach { span ->
-                            EventSpanItem(span = span)
+                            EventSpanItem(span = span, timeFormats = timeFormats)
                         }
                     }
                 }
@@ -943,26 +932,26 @@ private fun SleepEpisodeItem(
 @Composable
 private fun EventSpanItem(
     span: EventSpanEntity,
+    timeFormats: InsightsTimeFormats,
     modifier: Modifier = Modifier
 ) {
     val spanDurationSec = ((span.endedAtMillis - span.startedAtMillis) / 1000.0).let {
         String.format(Locale.US, "%.1f", it)
     }
-    val startTimeStr = formatTimestamp(span.startedAtMillis, "hh:mm:ss")
-    val endTimeStr = formatTimestamp(span.endedAtMillis, "hh:mm:ss")
+    val startTimeStr = timeFormats.formatSeconds(span.startedAtMillis)
+    val endTimeStr = timeFormats.formatSeconds(span.endedAtMillis)
     val (containerColor, contentColor) = groupColor(span.group)
 
-    Row(
+    FlowRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f))
             .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
-            modifier = Modifier.weight(1f, fill = false),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -972,7 +961,7 @@ private fun EventSpanItem(
                 modifier = Modifier.size(8.dp)
             ) {}
             Text(
-                text = "${groupEmoji(span.group)} ${span.group.name}",
+                text = "${groupEmoji(span.group)} ${span.group.displayLabel()}",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = contentColor,
@@ -980,8 +969,6 @@ private fun EventSpanItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
-
-        Spacer(modifier = Modifier.width(8.dp))
 
         Text(
             text = "$startTimeStr – $endTimeStr (${spanDurationSec}s)",
@@ -1085,10 +1072,6 @@ private fun ModernAudioEqualizer(
             )
         }
     }
-}
-
-private fun formatTimestamp(millis: Long, pattern: String): String {
-    return DateTimeFormatter.ofPattern(pattern).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(millis))
 }
 
 @Composable
