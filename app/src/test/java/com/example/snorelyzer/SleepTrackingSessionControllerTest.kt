@@ -2,6 +2,7 @@ package com.example.snorelyzer
 
 import com.example.snorelyzer.ml.AudioGateDecision
 import com.example.snorelyzer.ml.AudioGateState
+import com.example.snorelyzer.ml.AudioModelConfig
 import com.example.snorelyzer.ml.AudioProcessingResult
 import com.example.snorelyzer.ml.SleepAudioProcessor
 import com.example.snorelyzer.ml.recording.AudioClipWriteRequest
@@ -75,7 +76,8 @@ class SleepTrackingSessionControllerTest {
                         windowStartMillis = 0L,
                         gateDecision = gateDecision(shouldInfer = true),
                         groupResults = listOf(snoringResult),
-                        occurringGroupResults = listOf(snoringResult)
+                        occurringGroupResults = listOf(snoringResult),
+                        occurringGroupsByFrame = List(25) { listOf(snoringResult) }
                     )
                 )
             )
@@ -89,6 +91,55 @@ class SleepTrackingSessionControllerTest {
         assertEquals(
             listOf(DetectedClassUi(label = "Snoring", probabilityPercent = 31)),
             controller.state.value.latestResults
+        )
+    }
+
+    @Test
+    fun overlappingWindowsBackfillSkippedAudioAndFlushTheTailWithoutDuplicatingSpans() {
+        val sink = FakeRecordingMetadataSink()
+        val results = ArrayDeque<AudioProcessingResult>(listOf(
+            frameWindow(0L, 1_000L),
+            frameWindow(0L, 2_000L, 960L, 1_000L, 1_120L),
+            AudioProcessingResult.Skipped(0L, gateDecision(shouldInfer = false)),
+            frameWindow(0L, 4_000L, 960L, 1_000L, 1_120L, 2_480L, 3_800L)
+        ))
+        val pipeline = FakeSleepAudioProcessor(results)
+        val controller = controller(pipeline, sink)
+        controller.startSession(startedAtMillis = 0)
+
+        repeat(4) { second -> controller.onAudioChunk(chunk, second * 1_000L) }
+        controller.stopSession(save = true, endedAtMillis = 4_000L)
+
+        val episode = sink.completedEpisodes.single()
+        assertEquals(4_000L, episode.clipEndMillis)
+        assertEquals(
+            listOf(960L to 1_040L, 1_120L to 1_160L, 2_480L to 2_520L, 3_800L to 3_840L),
+            episode.eventSpans.map { it.startedAtMillis to it.endedAtMillis }
+        )
+        assertEquals(4, pipeline.forceInferenceValues.size)
+    }
+
+    @Test
+    fun expiredUnscoredAudioBreaksASpanBeforeInferenceResumes() {
+        val sink = FakeRecordingMetadataSink()
+        val results = ArrayDeque<AudioProcessingResult>()
+        results.add(frameWindow(0L, 1_000L))
+        results.add(frameWindow(0L, 2_000L, 960L, 1_000L, 1_960L))
+        for (end in 3..13) {
+            val start = maxOf(0L, (end - 10) * 1_000L)
+            results.add(AudioProcessingResult.Skipped(start, gateDecision(shouldInfer = false)))
+        }
+        results.add(frameWindow(4_000L, 14_000L, 4_000L))
+        val controller = controller(FakeSleepAudioProcessor(results), sink)
+        controller.startSession(startedAtMillis = 0)
+
+        repeat(14) { second -> controller.onAudioChunk(chunk, second * 1_000L) }
+        controller.stopSession(save = true, endedAtMillis = 14_000L)
+
+        val spans = sink.completedEpisodes.single().eventSpans
+        assertEquals(
+            listOf(960L to 1_040L, 1_960L to 2_000L, 4_000L to 4_040L),
+            spans.map { it.startedAtMillis to it.endedAtMillis }
         )
     }
 
@@ -130,7 +181,8 @@ class SleepTrackingSessionControllerTest {
                     windowStartMillis = start,
                     gateDecision = gateDecision(shouldInfer = true),
                     groupResults = listOf(snoringResult),
-                    occurringGroupResults = listOf(snoringResult)
+                    occurringGroupResults = listOf(snoringResult),
+                    occurringGroupsByFrame = List(25) { listOf(snoringResult) }
                 )
             })
         )
@@ -185,8 +237,10 @@ class SleepTrackingSessionControllerTest {
                         windowStartMillis = 0L,
                         gateDecision = gateDecision(shouldInfer = true),
                         groupResults = listOf(snoringResult),
-                        occurringGroupResults = listOf(snoringResult)
-                    )
+                        occurringGroupResults = listOf(snoringResult),
+                        occurringGroupsByFrame = List(25) { listOf(snoringResult) }
+                    ),
+                    frameWindow(0L, 2_000L, 960L)
                 )
             )
         )
@@ -198,8 +252,8 @@ class SleepTrackingSessionControllerTest {
         }
 
         assertFalse(pipeline.forceInferenceValues.first())
-        assertTrue(pipeline.forceInferenceValues.subList(1, 21).all { it })
-        assertFalse(pipeline.forceInferenceValues[21])
+        assertTrue(pipeline.forceInferenceValues.subList(1, 22).all { it })
+        assertFalse(pipeline.forceInferenceValues[22])
         controller.stopSession(save = false, endedAtMillis = 23_000L)
     }
 
@@ -209,7 +263,8 @@ class SleepTrackingSessionControllerTest {
             windowStartMillis = 1_000L,
             gateDecision = gateDecision(shouldInfer = true),
             groupResults = listOf(snoringResult),
-            occurringGroupResults = listOf(snoringResult)
+            occurringGroupResults = listOf(snoringResult),
+            occurringGroupsByFrame = List(25) { listOf(snoringResult) }
         )
         val pipeline = FakeSleepAudioProcessor(results = ArrayDeque(listOf(result)))
         var stateDuringClipWrite: SleepTrackingSessionState? = null
@@ -233,22 +288,23 @@ class SleepTrackingSessionControllerTest {
             windowStartMillis = 1_000L,
             gateDecision = gateDecision(shouldInfer = true),
             groupResults = listOf(snoringResult),
-            occurringGroupResults = listOf(snoringResult)
+            occurringGroupResults = listOf(snoringResult),
+            occurringGroupsByFrame = List(25) { listOf(snoringResult) }
         )
-        val results = ArrayDeque<AudioProcessingResult>(listOf(event))
+        val results = ArrayDeque<AudioProcessingResult>(listOf(event, frameWindow(1_000L, 3_000L, 1_960L)))
         val sink = FakeRecordingMetadataSink()
         val writer = OpusAudioClipWriter(clips.root, encode = { file, _ -> file.writeText("encoded audio") })
         val controller = controller(FakeSleepAudioProcessor(results), sink, writer)
         controller.startSession(startedAtMillis = 1_000L)
 
-        for (second in 1..21) {
+        for (second in 1..22) {
             controller.onAudioChunk(chunk, chunkStartMillis = second * 1_000L)
         }
         assertEquals("opus", File(checkNotNull(sink.completedEpisodes.single().filePath)).extension)
 
-        results.addLast(event.copy(windowStartMillis = 22_000L))
-        controller.onAudioChunk(chunk, chunkStartMillis = 22_000L)
-        controller.stopSession(save = true, endedAtMillis = 23_000L, explicitlyRequestedSave = true)
+        results.addLast(event.copy(windowStartMillis = 23_000L))
+        controller.onAudioChunk(chunk, chunkStartMillis = 23_000L)
+        controller.stopSession(save = true, endedAtMillis = 24_000L, explicitlyRequestedSave = true)
 
         assertEquals(2, sink.completedSessions.single().completedEpisodeCount)
         val finalEpisode = sink.completedEpisodes.last()
@@ -314,6 +370,23 @@ class SleepTrackingSessionControllerTest {
         threshold = 0.15f
     )
 
+    private fun frameWindow(
+        start: Long,
+        end: Long,
+        vararg hitsAtMillis: Long
+    ): AudioProcessingResult.Classified {
+        val frames = List(((end - start) / 40).toInt()) { index ->
+            if (start + index * 40L in hitsAtMillis) listOf(snoringResult) else emptyList()
+        }
+        return AudioProcessingResult.Classified(
+            windowStartMillis = start,
+            gateDecision = gateDecision(shouldInfer = true),
+            groupResults = emptyList(),
+            occurringGroupResults = emptyList(),
+            occurringGroupsByFrame = frames
+        )
+    }
+
     private fun gateDecision(shouldInfer: Boolean): AudioGateDecision {
         return AudioGateDecision(
             shouldInfer = shouldInfer,
@@ -340,9 +413,11 @@ class SleepTrackingSessionControllerTest {
         val forceInferenceValues = mutableListOf<Boolean>()
         var resetCalls = 0
         var closeCalls = 0
+        private var captureStartMillis: Long? = null
 
         override fun reset() {
             resetCalls++
+            captureStartMillis = null
         }
 
         override fun processChunk(
@@ -351,10 +426,21 @@ class SleepTrackingSessionControllerTest {
             forceInference: Boolean
         ): AudioProcessingResult {
             forceInferenceValues += forceInference
-            return results.removeFirstOrNull() ?: AudioProcessingResult.Skipped(
-                windowStartMillis = chunkStartMillis,
-                gateDecision = defaultGateDecision(shouldInfer = false)
-            )
+            val captureStart = captureStartMillis ?: chunkStartMillis.also { captureStartMillis = it }
+            val end = chunkStartMillis + 1_000L
+            val start = maxOf(captureStart, end - AudioModelConfig.WINDOW_SECONDS * 1_000L)
+            results.removeFirstOrNull()?.let { return it }
+            return if (forceInference) {
+                AudioProcessingResult.Classified(
+                    windowStartMillis = start,
+                    gateDecision = defaultGateDecision(shouldInfer = true),
+                    groupResults = emptyList(),
+                    occurringGroupResults = emptyList(),
+                    occurringGroupsByFrame = List(((end - start) / 40).toInt()) { emptyList() }
+                )
+            } else {
+                AudioProcessingResult.Skipped(start, defaultGateDecision(shouldInfer = false))
+            }
         }
 
         override fun close() {

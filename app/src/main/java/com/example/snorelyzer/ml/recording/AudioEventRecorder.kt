@@ -28,11 +28,10 @@ data class RecordedEventConfig(
         RecordedEventGroup.Cough to 0.25f,
         RecordedEventGroup.SleepTalking to 0.35f
     ),
-    val postEventPadMillis: Long = 4_000L,
+    val postEventPadMillis: Long = 1_000L,
     val rollingBufferDurationMillis: Long = 330_000L,
-    val preEventPadMillis: Long = 2_000L,
-    val clipEdgePadMillis: Long = 1_000L,
-    val minClipDurationMillis: Long = 5_000L,
+    val preEventPadMillis: Long = 1_000L,
+    val minClipDurationMillis: Long = 3_000L,
     val episodeQuietTimeoutMillis: Long = 20_000L,
     val maxClipDurationMillis: Long = 5 * 60_000L,
     val sampleRate: Int = 32_000
@@ -89,12 +88,6 @@ class AudioEventRecorder(
     private val rollingBuffer = RollingAudioBuffer(
         sampleRate = config.sampleRate,
         durationMillis = config.rollingBufferDurationMillis
-    )
-
-    private val clipTrimmer = AudioClipTrimmer(
-        sampleRate = config.sampleRate,
-        edgePadMillis = config.clipEdgePadMillis,
-        minDurationMillis = config.minClipDurationMillis
     )
 
     private var session: RecordingSessionMetadata? = null
@@ -243,7 +236,7 @@ class AudioEventRecorder(
         val droppedGroups = activeSpans.keys.filterNot { it in activeGroups }
         droppedGroups.forEach { group ->
             val span = activeSpans.remove(group) ?: return@forEach
-            activeEpisode?.eventSpans?.add(span.toMetadata(config.postEventPadMillis))
+            activeEpisode?.eventSpans?.add(span.toMetadata())
         }
     }
 
@@ -259,30 +252,34 @@ class AudioEventRecorder(
         val episode = activeEpisode ?: return
         saveFullClips(episode, emptyMap())
 
-        val availableStart = rollingBuffer.availableStartMillis
-        val availableEnd = rollingBuffer.availableEndMillis
-        if (availableStart != null && availableEnd != null) {
-            val start = maxOf(episode.clipStartMillis, availableStart)
-            val end = minOf(
-                maxOf(
-                    episode.lastPositiveWindowEndMillis + config.postEventPadMillis,
-                    start + config.minClipDurationMillis
-                ),
-                start + segmentDurationMillis,
-                availableEnd
-            )
-            if (end > start) {
-                saveClip(
-                    episode,
-                    ClipBoundary(start, end),
-                    trimEdges = !episode.isContinuation,
-                    saveUncompressed = saveUncompressed
-                )
-            }
+        finalClipBoundary(episode)?.let { boundary ->
+            saveClip(episode, boundary, saveUncompressed = saveUncompressed)
         }
         activeSpans.clear()
         activeEpisode = null
         state = RecorderState.Idle
+    }
+
+    private fun finalClipBoundary(episode: ActiveEpisode): ClipBoundary? {
+        val availableStart = rollingBuffer.availableStartMillis ?: return null
+        val availableEnd = rollingBuffer.availableEndMillis ?: return null
+        val start = maxOf(episode.clipStartMillis, availableStart)
+        val end = minOf(
+            episode.lastPositiveWindowEndMillis + config.postEventPadMillis,
+            start + segmentDurationMillis,
+            availableEnd
+        )
+        if (end <= start) return null
+
+        val minimumDuration = minOf(config.minClipDurationMillis, segmentDurationMillis)
+        val missing = minimumDuration - (end - start)
+        if (missing <= 0) return ClipBoundary(start, end)
+
+        // Continuation clips share a boundary with the preceding clip.
+        val earliestStart = if (episode.isContinuation) start else availableStart
+        val earlierStart = maxOf(earliestStart, start - missing / 2)
+        val laterEnd = minOf(availableEnd, maxOf(end, earlierStart + minimumDuration))
+        return ClipBoundary(maxOf(earliestStart, minOf(earlierStart, laterEnd - minimumDuration)), laterEnd)
     }
 
     private fun saveFullClips(episode: ActiveEpisode, hits: Map<RecordedEventGroup, Float>) {
@@ -292,13 +289,13 @@ class AudioEventRecorder(
         var splitAt = episode.clipStartMillis + segmentDurationMillis
         // Wait for a positive window beyond the boundary so padding alone cannot open a new clip.
         while (splitAt < episode.lastPositiveWindowEndMillis && splitAt <= availableEnd) {
-            saveClip(episode, ClipBoundary(episode.clipStartMillis, splitAt), trimEdges = false)
+            saveClip(episode, ClipBoundary(episode.clipStartMillis, splitAt))
             episode.clipStartMillis = splitAt
             episode.isContinuation = true
             episode.eventSpans.removeAll { it.endedAtMillis <= splitAt }
             activeSpans.values.forEach { span ->
                 span.startedAtMillis = maxOf(span.startedAtMillis, splitAt)
-                // The window that crossed the split is the first evidence in this segment.
+                // The interval that crossed the split is the first evidence in this segment.
                 span.peakProbability = hits[span.group] ?: span.peakProbability
             }
             splitAt += segmentDurationMillis
@@ -307,29 +304,18 @@ class AudioEventRecorder(
 
     private fun saveClip(
         episode: ActiveEpisode,
-        bufferedBoundary: ClipBoundary,
-        trimEdges: Boolean,
+        clipBoundary: ClipBoundary,
         saveUncompressed: Boolean = false
     ) {
         val currentSession = session ?: return
-        val bufferedSamples = rollingBuffer.extract(
-            bufferedBoundary.startMillis,
-            bufferedBoundary.endMillis
+        val samples = rollingBuffer.extract(
+            clipBoundary.startMillis,
+            clipBoundary.endMillis
         ) ?: return
-        val bounds = if (trimEdges) {
-            clipTrimmer.findBounds(bufferedSamples)
-        } else {
-            AudioClipTrimmer.Bounds(0, bufferedSamples.size)
-        }
-        val clipBoundary = ClipBoundary(
-            startMillis = bufferedBoundary.startMillis + bounds.startSample * 1_000L / config.sampleRate,
-            endMillis = bufferedBoundary.startMillis + bounds.endSampleExclusive * 1_000L / config.sampleRate
-        )
-        val samples = if (bounds.startSample == 0 && bounds.endSampleExclusive == bufferedSamples.size) {
-            bufferedSamples
-        } else {
-            bufferedSamples.copyOfRange(bounds.startSample, bounds.endSampleExclusive)
-        }
+        val spans = (episode.eventSpans + activeSpans.values.map { it.toMetadata() })
+            .mapNotNull { it.clippedTo(clipBoundary) }
+        if (spans.isEmpty()) return
+
         val episodeId = "${currentSession.sessionId}-episode-${nextEpisodeNumber++}"
         val request = AudioClipWriteRequest(
             episodeId = episodeId,
@@ -339,9 +325,6 @@ class AudioEventRecorder(
             clipStartMillis = clipBoundary.startMillis,
             clipEndMillis = clipBoundary.endMillis
         )
-        val spans = (episode.eventSpans + activeSpans.values.map {
-            it.toMetadata(config.postEventPadMillis)
-        }).mapNotNull { it.clippedTo(bufferedBoundary) }
         val peakProbabilities = spans.groupingBy { it.group }.fold(0f) { peak, span ->
             maxOf(peak, span.peakProbability)
         }
@@ -351,7 +334,7 @@ class AudioEventRecorder(
             clipStartMillis = clipBoundary.startMillis,
             clipEndMillis = clipBoundary.endMillis,
             groups = peakProbabilities.keys,
-            eventSpans = spans.mapNotNull { it.clippedTo(clipBoundary) },
+            eventSpans = spans,
             peakProbabilities = peakProbabilities,
             sampleRate = request.sampleRate,
             durationMillis = request.samples.size * 1_000L / request.sampleRate
@@ -422,11 +405,11 @@ class AudioEventRecorder(
         var lastPositiveWindowEndMillis: Long,
         var peakProbability: Float
     ) {
-        fun toMetadata(postEventPadMillis: Long): EventSpanMetadata {
+        fun toMetadata(): EventSpanMetadata {
             return EventSpanMetadata(
                 group = group,
                 startedAtMillis = startedAtMillis,
-                endedAtMillis = lastPositiveWindowEndMillis + postEventPadMillis,
+                endedAtMillis = lastPositiveWindowEndMillis,
                 peakProbability = peakProbability
             )
         }

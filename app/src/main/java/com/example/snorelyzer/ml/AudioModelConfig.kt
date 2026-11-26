@@ -19,4 +19,6 @@ object AudioModelConfig {
 
     const val OUTPUT_CLASSES = 447
     const val OUTPUT_FRAMES = 250
+    const val OUTPUT_FRAME_MILLIS = WINDOW_SECONDS * 1_000L / OUTPUT_FRAMES
+    const val OUTPUT_FRAMES_PER_SECOND = OUTPUT_FRAMES / WINDOW_SECONDS
 }

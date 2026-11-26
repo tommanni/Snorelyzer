@@ -5,7 +5,6 @@ import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import kotlin.math.exp
-import kotlin.math.max
 
 data class ClassificationResult(
     val index: Int,
@@ -36,13 +35,13 @@ class SleepClassifier(context: Context) : RelevantSleepClassifier {
     override fun classifyRelevant(
         melSpectrogram: FloatArray,
         relevantClassIndices: Set<Int>
-    ): List<ClassificationResult> {
+    ): Map<Int, FloatArray> {
         require(melSpectrogram.size == AudioModelConfig.MEL_TENSOR_SIZE) {
             "Expected ${AudioModelConfig.MEL_TENSOR_SIZE} mel values, got ${melSpectrogram.size}"
         }
         inputBuffers[0].writeFloat(melSpectrogram)
         model.run(inputBuffers, outputBuffers)
-        return poolFrameLogits(outputBuffers[0].readFloat(), relevantClassIndices)
+        return frameProbabilities(outputBuffers[0].readFloat(), relevantClassIndices)
     }
 
     private fun validateInputShape() {
@@ -66,26 +65,20 @@ class SleepClassifier(context: Context) : RelevantSleepClassifier {
     }
 }
 
-internal fun poolFrameLogits(
+internal fun frameProbabilities(
     logits: FloatArray,
     relevantClassIndices: Set<Int>
-): List<ClassificationResult> {
+): Map<Int, FloatArray> {
     val classes = AudioModelConfig.OUTPUT_CLASSES
     val frames = AudioModelConfig.OUTPUT_FRAMES
     require(logits.size == classes * frames) {
         "Expected [1, $classes, $frames] frame logits, got ${logits.size} values"
     }
 
-    // A short cough or gasp can occupy only a few frames in a ten-second window.
     return relevantClassIndices
-        .filter { it in 0 until classes }
-        .map { index ->
+        .associateWith { index ->
+            require(index in 0 until classes) { "Class index $index is outside the fmn06 output" }
             val start = index * frames
-            var peak = logits[start]
-            for (position in start + 1 until start + frames) {
-                peak = max(peak, logits[position])
-            }
-            ClassificationResult(index, 1f / (1f + exp(-peak)))
+            FloatArray(frames) { frame -> 1f / (1f + exp(-logits[start + frame])) }
         }
-        .sortedByDescending { it.probability }
 }

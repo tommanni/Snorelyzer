@@ -16,7 +16,7 @@ interface RelevantSleepClassifier {
     fun classifyRelevant(
         melSpectrogram: FloatArray,
         relevantClassIndices: Set<Int>
-    ): List<ClassificationResult>
+    ): Map<Int, FloatArray>
 
     fun close()
 }
@@ -34,7 +34,8 @@ sealed interface AudioProcessingResult {
         override val windowStartMillis: Long,
         override val gateDecision: AudioGateDecision,
         val groupResults: List<RecordedEventGroupResult>,
-        val occurringGroupResults: List<RecordedEventGroupResult>
+        val occurringGroupResults: List<RecordedEventGroupResult>,
+        val occurringGroupsByFrame: List<List<RecordedEventGroupResult>>
     ) : AudioProcessingResult
 
     data class Failed(
@@ -124,11 +125,17 @@ class AudioProcessingPipeline(
             val t0 = System.nanoTime()
             val melTensor = audioProcessor.process(finalMLInput)
             val t1 = System.nanoTime()
-            val classificationResults = classifier.classifyRelevant(melTensor, inferenceClassIndices)
-            val groupResults = RecordedEventCatalog.aggregate(
-                classificationResults,
-                recordedEventConfig
-            )
+            val probabilities = classifier.classifyRelevant(melTensor, inferenceClassIndices)
+            val realFrameCount = validSamples / stepSamples * AudioModelConfig.OUTPUT_FRAMES_PER_SECOND
+            val firstRealFrame = AudioModelConfig.OUTPUT_FRAMES - realFrameCount
+            // Warm-up mirrors audio on the left. Only score frames aligned with real samples.
+            val groupsByFrame = (firstRealFrame until AudioModelConfig.OUTPUT_FRAMES).map { frame ->
+                RecordedEventCatalog.aggregate(
+                    probabilities.map { (index, scores) -> ClassificationResult(index, scores[frame]) },
+                    recordedEventConfig
+                )
+            }
+            val groupResults = peakGroupResults(groupsByFrame)
             // Protect below the recording threshold too. These sigmoid scores are
             // uncalibrated: a low target score alone is not proof of background.
             audioGate.observeClassification(
@@ -141,12 +148,14 @@ class AudioProcessingPipeline(
             val t2 = System.nanoTime()
             logClassificationTiming(t0, t1, t2)
             logClassificationResults(start, groupResults)
-            logRespiratoryScores(classificationResults)
+            logRespiratoryScores(probabilities, firstRealFrame)
+            val latestGroups = peakGroupResults(groupsByFrame.takeLast(AudioModelConfig.OUTPUT_FRAMES_PER_SECOND))
             AudioProcessingResult.Classified(
                 windowStartMillis = windowStartMillis,
                 gateDecision = gateDecision,
                 groupResults = groupResults,
-                occurringGroupResults = groupResults.filter { it.isOccurring }
+                occurringGroupResults = latestGroups.filter { it.isOccurring },
+                occurringGroupsByFrame = groupsByFrame.map { results -> results.filter { it.isOccurring } }
             )
         }.getOrElse { error ->
             audioGate.observeClassification(windowStartMillis, windowEndMillis,
@@ -218,9 +227,22 @@ class AudioProcessingPipeline(
         logDebug("SleepTracker", logMsg)
     }
 
-    private fun logRespiratoryScores(results: List<ClassificationResult>) {
+    private fun peakGroupResults(
+        groupsByFrame: List<List<RecordedEventGroupResult>>
+    ): List<RecordedEventGroupResult> {
+        return groupsByFrame.asSequence()
+            .flatten()
+            .groupingBy { it.group }
+            .reduce { _, peak, result -> if (result.probability > peak.probability) result else peak }
+            .values
+            .sortedByDescending { it.probability }
+    }
+
+    private fun logRespiratoryScores(probabilities: Map<Int, FloatArray>, firstRealFrame: Int) {
         val scores = respiratoryScoreLabels.entries.joinToString(" | ") { (index, label) ->
-            val probability = results.firstOrNull { it.index == index }?.probability
+            val probability = probabilities[index]?.let { values ->
+                (firstRealFrame until values.size).maxOf { values[it] }
+            }
             val score = probability?.let { "%.4f".format(Locale.ROOT, it) } ?: "n/a"
             "$label=$score"
         }

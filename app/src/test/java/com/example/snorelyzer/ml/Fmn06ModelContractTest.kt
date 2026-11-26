@@ -34,17 +34,22 @@ class Fmn06ModelContractTest {
     }
 
     @Test
-    fun poolingUsesThePeakLogitWithinEachRequestedClass() {
+    fun preservesEachFrameWithinItsRequestedClass() {
         val logits = FloatArray(447 * 250) { -8f }
         logits[104 * 250 + 249] = 12f
         logits[105 * 250 + 249] = 0f
         logits[176 * 250] = 2f
         logits[176 * 250 + 249] = 1f
 
-        val results = poolFrameLogits(logits, setOf(105, 176))
+        val scores = frameProbabilities(logits, setOf(105, 176))
+        val cough = scores.getValue(105)
+        val gasp = scores.getValue(176)
 
-        assertEquals(listOf(176, 105), results.map { it.index })
-        assertEquals(0.880797f, results[0].probability, 0.000001f)
-        assertEquals(0.5f, results[1].probability, 0.000001f)
+        assertEquals(setOf(105, 176), scores.keys)
+        assertEquals(250, cough.size)
+        assertEquals(0.000335f, cough[0], 0.000001f)
+        assertEquals(0.5f, cough[249], 0.000001f)
+        assertEquals(0.880797f, gasp[0], 0.000001f)
+        assertEquals(0.731059f, gasp[249], 0.000001f)
     }
 }

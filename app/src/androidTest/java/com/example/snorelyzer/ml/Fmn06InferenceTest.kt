@@ -3,6 +3,7 @@ package com.example.snorelyzer.ml
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.snorelyzer.MicrophoneCapture
 import com.example.snorelyzer.ml.recording.RecordedEventGroup
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,7 +26,9 @@ class Fmn06InferenceTest {
                 throw AssertionError("Quantized fmn06 inference failed", result.error)
             }
 
-            val groups = (result as AudioProcessingResult.Classified).groupResults
+            val classified = result as AudioProcessingResult.Classified
+            assertEquals(25, classified.occurringGroupsByFrame.size)
+            val groups = classified.groupResults
             assertTrue(groups.map { it.group }.containsAll(listOf(
                 RecordedEventGroup.Snoring,
                 RecordedEventGroup.Cough,

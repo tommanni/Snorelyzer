@@ -145,6 +145,30 @@ class AudioProcessingPipelineTest {
     }
 
     @Test
+    fun scoresOnlyRealFramesAndComparesGaspWithBreathingOnEachFrame() {
+        val classifier = FakeRelevantSleepClassifier(
+            frameScores = mapOf(
+                105 to FloatArray(250).apply { this[224] = 0.99f },
+                176 to FloatArray(250).apply {
+                    this[225] = 0.15f
+                    this[226] = 0.2f
+                },
+                46 to FloatArray(250) { 0.5f }.apply { this[226] = 0.04f }
+            )
+        )
+        val result = pipeline(classifier = classifier)
+            .processChunk(FloatArray(chunkSize), 1_000L, forceInference = true)
+            as AudioProcessingResult.Classified
+
+        assertEquals(1_000L, result.windowStartMillis)
+        assertEquals(25, result.occurringGroupsByFrame.size)
+        assertTrue(result.occurringGroupsByFrame[0].isEmpty())
+        assertEquals(RecordedEventGroup.Gasp, result.occurringGroupsByFrame[1].single().group)
+        assertEquals(1, result.occurringGroupsByFrame.count { it.isNotEmpty() })
+        assertEquals(RecordedEventGroup.Gasp, result.occurringGroupResults.single().group)
+    }
+
+    @Test
     fun positiveClassifierFeedbackKeepsStartupSnoringEligible() {
         val pipeline = pipeline(classifier = FakeRelevantSleepClassifier(
             results = listOf(ClassificationResult(index = 345, probability = 0.9f))
@@ -204,7 +228,8 @@ class AudioProcessingPipelineTest {
     }
 
     private class FakeRelevantSleepClassifier(
-        private val results: List<ClassificationResult> = emptyList()
+        private val results: List<ClassificationResult> = emptyList(),
+        private val frameScores: Map<Int, FloatArray> = emptyMap()
     ) : RelevantSleepClassifier {
         var classifyCalls = 0
         var closeCalls = 0
@@ -214,10 +239,12 @@ class AudioProcessingPipelineTest {
         override fun classifyRelevant(
             melSpectrogram: FloatArray,
             relevantClassIndices: Set<Int>
-        ): List<ClassificationResult> {
+        ): Map<Int, FloatArray> {
             classifyCalls++
             requestedClassIndices = relevantClassIndices
-            return results.filter { it.index in relevantClassIndices }
+            return (results.associate { result ->
+                result.index to FloatArray(AudioModelConfig.OUTPUT_FRAMES) { result.probability }
+            } + frameScores).filterKeys { it in relevantClassIndices }
         }
 
         override fun close() {
