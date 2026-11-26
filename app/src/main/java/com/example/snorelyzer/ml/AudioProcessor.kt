@@ -1,205 +1,129 @@
 package com.example.snorelyzer.ml
 
-import android.content.Context
+import com.example.snorelyzer.ml.AudioModelConfig.CAPTURE_WINDOW_SAMPLES
+import com.example.snorelyzer.ml.AudioModelConfig.HOP_SIZE
+import com.example.snorelyzer.ml.AudioModelConfig.MEL_FRAMES
+import com.example.snorelyzer.ml.AudioModelConfig.MODEL_WINDOW_SAMPLES
+import com.example.snorelyzer.ml.AudioModelConfig.N_FFT
+import com.example.snorelyzer.ml.AudioModelConfig.N_MELS
+import com.example.snorelyzer.ml.AudioModelConfig.SAMPLE_RATE
+import com.example.snorelyzer.ml.AudioModelConfig.WIN_LENGTH
 import org.jtransforms.fft.FloatFFT_1D
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.ln
+import kotlin.math.ln1p
+import kotlin.math.sin
 
-class AudioProcessor(context: Context) : MelSpectrogramProcessor {
-    private val nMels = AudioModelConfig.N_MELS
-    private val nFft = AudioModelConfig.N_FFT
-    private val nFreqBins = AudioModelConfig.N_FREQ_BINS
-    private val winLength = AudioModelConfig.WIN_LENGTH
-    private val hopSize = AudioModelConfig.HOP_SIZE
-    private val expectedFrames = AudioModelConfig.EXPECTED_FRAMES
-    private val padLength = nFft / 2 // 512
-    private val expectedSamples = AudioModelConfig.EXPECTED_SAMPLES
-
-    private val fft = FloatFFT_1D(nFft.toLong())
-    private val window = FloatArray(winLength)
-    private val melBasis = FloatArray(nMels * nFreqBins)
-
-    private val paddedLen = expectedSamples + padLength * 2
-    private val paddedAudio = FloatArray(paddedLen)
-    private val preEmphasizedAudio = FloatArray(expectedSamples)
-    private val powerFrames = FloatArray(expectedFrames * nFreqBins) // Changed to FloatArray
-    private val fftBuffer = FloatArray(nFft)
-    private val melSpec = FloatArray(expectedFrames * nMels)
-    private val newMelFrames = FloatArray(expectedFrames * nMels)
-    
-    private val melStartIndices = IntArray(nMels)
-    private val melEndIndices = IntArray(nMels)
-
-    init {
-        // Pre-compute Hann window (periodic=False)
-        for (i in 0 until winLength) {
-            window[i] = (0.5 - 0.5 * cos(2.0 * PI * i / (winLength - 1))).toFloat()
-        }
-
-        // Load mel basis matrix from assets
-        context.assets.open(AudioModelConfig.MEL_BASIS_ASSET).use { inputStream ->
-            val bytes = inputStream.readBytes()
-            require(bytes.size == AudioModelConfig.MEL_BASIS_BYTES) {
-                "Expected ${AudioModelConfig.MEL_BASIS_ASSET} to be " +
-                    "${AudioModelConfig.MEL_BASIS_BYTES} bytes for $nMels mel bins, got ${bytes.size}"
-            }
-            val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-            for (i in melBasis.indices) {
-                melBasis[i] = buffer.float
-            }
-        }
-
-        // Pre-compute sparse indices for mel basis
-        for (m in 0 until nMels) {
-            val melRowOffset = m * nFreqBins
-            var firstNonZero = -1
-            var lastNonZero = -1
-            
-            for (k in 0 until nFreqBins) {
-                if (melBasis[melRowOffset + k] > 0.0f) {
-                    if (firstNonZero == -1) firstNonZero = k
-                    lastNonZero = k
-                }
-            }
-            
-            // Fallback in case a row is entirely zero (unlikely but safe)
-            if (firstNonZero == -1) {
-                firstNonZero = 0
-                lastNonZero = 0
-            }
-            
-            melStartIndices[m] = firstNonZero
-            melEndIndices[m] = lastNonZero
-        }
+class AudioProcessor : MelSpectrogramProcessor {
+    private val resampleRadius = 47
+    private val resampleSideWeights = FloatArray((resampleRadius + 1) / 2) { index ->
+        val offset = 2 * index + 1
+        val phase = PI * offset / resampleRadius
+        val blackman = 0.42 + 0.5 * cos(phase) + 0.08 * cos(2 * phase)
+        (blackman * sin(PI * offset / 2) / (PI * offset)).toFloat()
     }
+    private val resampleGain = 1f / (0.5f + 2f * resampleSideWeights.sum())
+    private val paddedCapture = FloatArray(CAPTURE_WINDOW_SAMPLES + 2 * resampleRadius)
 
-    private var isFirstRun = true
-    private val framesPerStep = 100 // 1 second of audio at 32kHz with 320 hopSize
-    private val stepSamples = framesPerStep * hopSize
-
-    override fun reset() {
-        isFirstRun = true
+    // Valid pre-emphasis removes one sample before the centered STFT.
+    private val emphasizedSamples = MODEL_WINDOW_SAMPLES - 1
+    private val fftPadding = N_FFT / 2
+    private val paddedSignal = FloatArray(emphasizedSamples + 2 * fftPadding)
+    private val fft = FloatFFT_1D(N_FFT.toLong())
+    private val window = FloatArray(WIN_LENGTH) { index ->
+        (0.5 - 0.5 * cos(2.0 * PI * index / (WIN_LENGTH - 1))).toFloat()
     }
+    private val fftBuffer = FloatArray(N_FFT)
+    private val power = FloatArray(N_FFT / 2)
+    private val melFilters = createMelFilters()
+    private val melSpec = FloatArray(AudioModelConfig.MEL_TENSOR_SIZE)
 
     override fun process(audioData: FloatArray): FloatArray {
-        require(audioData.size == expectedSamples) { "Expected 320,000 samples, got ${audioData.size}" }
-
-        // 1 & 2. Pre-emphasis & padding
-        if (isFirstRun) {
-            computeFullPreEmphasis(audioData)
-        } else {
-            updatePreEmphasisTail(audioData)
+        require(audioData.size == CAPTURE_WINDOW_SAMPLES) {
+            "Expected $CAPTURE_WINDOW_SAMPLES microphone samples, got ${audioData.size}"
         }
+        prepareSignal(audioData)
 
-        // Determine how many frames we need to compute
-        val startFrame = if (isFirstRun) 0 else expectedFrames - framesPerStep
-
-        if (!isFirstRun) {
-            // Shift existing melSpec left by framesPerStep (100)
-            for (m in 0 until nMels) {
-                val melRowStart = m * expectedFrames
-                System.arraycopy(
-                    melSpec,
-                    melRowStart + framesPerStep,
-                    melSpec,
-                    melRowStart,
-                    expectedFrames - framesPerStep
-                )
+        for (frame in 0 until MEL_FRAMES) {
+            val start = fftPadding + frame * HOP_SIZE - WIN_LENGTH / 2
+            val windowOffset = (N_FFT - WIN_LENGTH) / 2
+            fftBuffer.fill(0f)
+            for (index in window.indices) {
+                fftBuffer[windowOffset + index] = paddedSignal[start + index] * window[index]
             }
-        }
-
-        // 3. STFT (Compute only new frames)
-        for (frame in startFrame until expectedFrames) {
-            val startInPadded = frame * hopSize + padLength - (winLength / 2)
-            val offset = (nFft - winLength) / 2
-
-            // Fast array zeroing
-            fftBuffer.fill(0.0f)
-
-            for (i in 0 until winLength) {
-                fftBuffer[offset + i] = paddedAudio[startInPadded + i] * window[i]
-            }
-
             fft.realForward(fftBuffer)
-
-            val frameOffset = frame * nFreqBins
-
-            powerFrames[frameOffset + 0] = fftBuffer[0] * fftBuffer[0]
-            powerFrames[frameOffset + nFreqBins - 1] = fftBuffer[1] * fftBuffer[1]
-            for (k in 1 until nFreqBins - 1) {
-                val re = fftBuffer[2 * k]
-                val im = fftBuffer[2 * k + 1]
-                powerFrames[frameOffset + k] = re * re + im * im
+            power[0] = fftBuffer[0] * fftBuffer[0]
+            for (bin in 1 until power.size) {
+                val real = fftBuffer[2 * bin]
+                val imaginary = fftBuffer[2 * bin + 1]
+                power[bin] = real * real + imaginary * imaginary
             }
-        }
 
-        // 4. Mel Projection & Normalization (Compute only new frames)
-        for (f in startFrame until expectedFrames) {
-            val frameOffset = f * nFreqBins
-            val melFrameOffset = (f - startFrame) * nMels
-            for (m in 0 until nMels) {
-                val melRowOffset = m * nFreqBins
-                val startIdx = melStartIndices[m]
-                val endIdx = melEndIndices[m]
-
-                var sum = 0.0f
-                for (k in startIdx..endIdx) {
-                    sum += melBasis[melRowOffset + k] * powerFrames[frameOffset + k]
+            for (mel in melFilters.indices) {
+                val filter = melFilters[mel]
+                var energy = 0f
+                for (index in filter.weights.indices) {
+                    energy += filter.weights[index] * power[filter.firstBin + index]
                 }
-
-                val lnMel = ln(sum + 0.00001f)
-                newMelFrames[melFrameOffset + m] = (lnMel + 4.5f) / 5.0f
+                melSpec[mel * MEL_FRAMES + frame] = (ln(energy.coerceAtLeast(1e-7f)) + 4.5f) / 5f
             }
         }
-
-        for (f in startFrame until expectedFrames) {
-            val melFrameOffset = (f - startFrame) * nMels
-            for (m in 0 until nMels) {
-                melSpec[m * expectedFrames + f] = newMelFrames[melFrameOffset + m]
-            }
-        }
-
-        isFirstRun = false
         return melSpec
     }
 
-    private fun computeFullPreEmphasis(audioData: FloatArray) {
-        preEmphasizedAudio[0] = audioData[0]
-        for (i in 1 until expectedSamples) {
-            preEmphasizedAudio[i] = audioData[i] - 0.97f * audioData[i - 1]
+    private fun prepareSignal(audioData: FloatArray) {
+        audioData.copyInto(paddedCapture, destinationOffset = resampleRadius)
+        reflectPadding(paddedCapture, resampleRadius)
+
+        // Low-pass before halving 32 kHz capture to 16 kHz. The half-band
+        // filter has a center tap and symmetric pairs at odd offsets.
+        var previous = downsampleAt(resampleRadius)
+        for (index in 0 until emphasizedSamples) {
+            val current = downsampleAt(resampleRadius + 2 * (index + 1))
+            paddedSignal[fftPadding + index] = current - 0.97f * previous
+            previous = current
         }
-        System.arraycopy(preEmphasizedAudio, 0, paddedAudio, padLength, expectedSamples)
-        refreshReflectivePadding()
+        reflectPadding(paddedSignal, fftPadding)
     }
 
-    private fun updatePreEmphasisTail(audioData: FloatArray) {
-        val retainedSamples = expectedSamples - stepSamples
-
-        System.arraycopy(preEmphasizedAudio, stepSamples, preEmphasizedAudio, 0, retainedSamples)
-
-        for (i in retainedSamples until expectedSamples) {
-            preEmphasizedAudio[i] = audioData[i] - 0.97f * audioData[i - 1]
+    private fun downsampleAt(center: Int): Float {
+        var sample = 0.5f * paddedCapture[center]
+        for (index in resampleSideWeights.indices) {
+            val offset = 2 * index + 1
+            sample += resampleSideWeights[index] *
+                (paddedCapture[center - offset] + paddedCapture[center + offset])
         }
-
-        System.arraycopy(paddedAudio, padLength + stepSamples, paddedAudio, padLength, retainedSamples)
-
-        System.arraycopy(
-            preEmphasizedAudio,
-            retainedSamples,
-            paddedAudio,
-            padLength + retainedSamples,
-            stepSamples
-        )
-        refreshReflectivePadding()
+        return sample * resampleGain
     }
 
-    private fun refreshReflectivePadding() {
-        for (i in 0 until padLength) {
-            paddedAudio[padLength - 1 - i] = paddedAudio[padLength + i + 1]
-            paddedAudio[padLength + expectedSamples + i] = paddedAudio[padLength + expectedSamples - 2 - i]
+    private fun reflectPadding(samples: FloatArray, padding: Int) {
+        val last = samples.lastIndex - padding
+        for (index in 1..padding) {
+            samples[padding - index] = samples[padding + index]
+            samples[last + index] = samples[last - index]
         }
     }
+
+    private fun createMelFilters(): Array<MelFilter> {
+        // EfficientSED uses unnormalized Kaldi triangles over 0–7000 Hz.
+        // The Nyquist bin has zero weight, as in the upstream padded mel bank.
+        val melByBin = DoubleArray(N_FFT / 2) { melScale(it * SAMPLE_RATE.toDouble() / N_FFT) }
+        val step = melScale(7_000.0) / (N_MELS + 1)
+        return Array(N_MELS) { mel ->
+            val center = (mel + 1) * step
+            val firstBin = melByBin.indexOfFirst { it > center - step }
+            val endBin = melByBin.indexOfFirst { it >= center + step }
+            MelFilter(
+                firstBin = firstBin,
+                weights = FloatArray(endBin - firstBin) { index ->
+                    (1.0 - kotlin.math.abs(melByBin[firstBin + index] - center) / step).toFloat()
+                }
+            )
+        }
+    }
+
+    private fun melScale(hertz: Double): Double = 1127.0 * ln1p(hertz / 700.0)
+
+    private data class MelFilter(val firstBin: Int, val weights: FloatArray)
 }

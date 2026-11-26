@@ -69,7 +69,7 @@ val appModule = module {
     singleOf(::RoomRecordingMetadataSink) bind RecordingMetadataSink::class
     singleOf(::SleepDataDeletion)
     single { RecordedEventConfig() }
-    factory<MelSpectrogramProcessor> { AudioProcessor(androidContext()) }
+    factoryOf(::AudioProcessor) bind MelSpectrogramProcessor::class
     factoryOf(::AudioGate)
     factory<RelevantSleepClassifier> { SleepClassifier(androidContext()) }
     factory {

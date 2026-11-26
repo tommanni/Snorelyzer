@@ -1,14 +1,14 @@
 package com.example.snorelyzer.ml
 
 import android.util.Log
+import com.example.snorelyzer.MicrophoneCapture
 import com.example.snorelyzer.ml.recording.RecordedEventCatalog
 import com.example.snorelyzer.ml.recording.RecordedEventConfig
 import com.example.snorelyzer.ml.recording.RecordedEventGroupResult
 import com.example.snorelyzer.ml.recording.displayLabel
 import java.util.Locale
 
-interface MelSpectrogramProcessor {
-    fun reset()
+fun interface MelSpectrogramProcessor {
     fun process(audioData: FloatArray): FloatArray
 }
 
@@ -60,16 +60,16 @@ class AudioProcessingPipeline(
     private val classifier: RelevantSleepClassifier,
     private val recordedEventConfig: RecordedEventConfig = RecordedEventConfig()
 ) : SleepAudioProcessor {
-    private val totalSamples = 320_000
-    private val stepSamples = 32_000
-    private val sampleRate = 32_000
+    private val totalSamples = AudioModelConfig.CAPTURE_WINDOW_SAMPLES
+    private val sampleRate = MicrophoneCapture.SAMPLE_RATE
+    private val stepSamples = sampleRate
     private val audioBuffer = FloatArray(totalSamples)
     private val mlInputBuffer = FloatArray(totalSamples)
     private val paddedMLBuffer = FloatArray(totalSamples)
     private val respiratoryScoreLabels = mapOf(
         RecordedEventCatalog.GASP_CLASS_INDEX to "Gasp",
-        46 to "Snort",
-        50 to "Sniff",
+        RecordedEventCatalog.SNORT_CLASS_INDEX to "Snort",
+        RecordedEventCatalog.SNIFF_CLASS_INDEX to "Sniff",
         RecordedEventCatalog.BREATHING_CLASS_INDEX to "Breathing"
     )
     private val inferenceClassIndices = RecordedEventCatalog.relevantClassIndices + respiratoryScoreLabels.keys
@@ -80,7 +80,6 @@ class AudioProcessingPipeline(
     override fun reset() {
         validSamples = 0
         writeIndex = 0
-        audioProcessor.reset()
         audioGate.reset()
     }
 
@@ -104,7 +103,6 @@ class AudioProcessingPipeline(
         logGateDecision(gateDecision, forceInference)
 
         if (!shouldInfer) {
-            audioProcessor.reset()
             return AudioProcessingResult.Skipped(
                 windowStartMillis = windowStartMillis,
                 gateDecision = gateDecision

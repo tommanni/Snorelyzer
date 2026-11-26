@@ -14,8 +14,8 @@
 Microphone → Adaptive audio gate → On-device ML → Recorded episodes → Playback & analytics
 ```
 
-- **Custom audio processing:** Processes 32 kHz audio in a ten-second sliding window. FFT and Mel spectrogram preprocessing converts sound into model input, reusing buffers and previously computed frames.
-- **On-device audio classifier:** Google LiteRT runs a dynamic-range quantized TensorFlow Lite export of `mn10_as_mels_64`, a MobileNetV3 model trained on AudioSet. The app uses selected model outputs to detect snoring, gasping, coughing, and sleep talking. [Bundled model](app/src/main/assets/efficientat.tflite) · [Upstream EfficientAT models](https://github.com/fschmid56/EfficientAT#pre-trained-models)
+- **Custom audio processing:** Captures at 32 kHz and resamples each ten-second inference window to 16 kHz. The frontend converts it into 128 normalized log-mel bands using EfficientSED's preprocessing.
+- **On-device audio classifier:** Google LiteRT runs a dynamic-range INT8 export of EfficientSED's `fmn06_strong`, trained on AudioSet Strong. The app uses the peak frame probability in each window for snoring, gasping, coughing, and speech-related labels. [Bundled model](app/src/main/assets/fmn06_strong_int8.tflite) · [Upstream EfficientSED checkpoint](https://github.com/theMoro/EfficientSED#checkpoints-of-models-trained-on-audioset-strong)
 - **Adaptive detection:** Uses changes in sound energy and background noise to schedule inference. Periodic checks and classifier feedback help protect quiet or ongoing events from being treated as background.
 - **Event-based recording:** A rolling buffer preserves audio from before a detection. The recorder groups sounds, trims outer background audio, and saves 48 kb/s mono Opus clips with aligned event timestamps. Android 8–9 and devices that encounter an encoding error save WAV clips.
 - **Structured persistence:** Room relates sessions, episodes, sound groups, and event spans. Nights are derived from session dates, keeping overnight recordings together.
