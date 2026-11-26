@@ -17,6 +17,8 @@ import kotlin.math.sin
 
 class AudioProcessor : MelSpectrogramProcessor {
     private val resampleRadius = 47
+    private val captureSamplesPerModelSample = CAPTURE_WINDOW_SAMPLES / MODEL_WINDOW_SAMPLES
+    private val captureSamplesPerFrame = captureSamplesPerModelSample * HOP_SIZE
     private val resampleSideWeights = FloatArray((resampleRadius + 1) / 2) { index ->
         val offset = 2 * index + 1
         val phase = PI * offset / resampleRadius
@@ -39,13 +41,63 @@ class AudioProcessor : MelSpectrogramProcessor {
     private val melFilters = createMelFilters()
     private val melSpec = FloatArray(AudioModelConfig.MEL_TENSOR_SIZE)
 
-    override fun process(audioData: FloatArray): FloatArray {
+    // Each emphasized sample uses two consecutive resampled samples. Both filters
+    // must fit inside the unpadded capture window for that sample to be reusable.
+    private val firstInteriorSample =
+        (resampleRadius + captureSamplesPerModelSample - 1) / captureSamplesPerModelSample
+    private val interiorSampleEnd =
+        (CAPTURE_WINDOW_SAMPLES - 1 - resampleRadius) / captureSamplesPerModelSample
+    private val firstInteriorFrame = (firstInteriorSample + WIN_LENGTH / 2 + HOP_SIZE - 1) / HOP_SIZE
+
+    override fun process(audioData: FloatArray, windowAdvanceSamples: Int): FloatArray {
         require(audioData.size == CAPTURE_WINDOW_SAMPLES) {
             "Expected $CAPTURE_WINDOW_SAMPLES microphone samples, got ${audioData.size}"
         }
-        prepareSignal(audioData)
+        audioData.copyInto(paddedCapture, destinationOffset = resampleRadius)
+        reflectPadding(paddedCapture, resampleRadius)
 
-        for (frame in 0 until MEL_FRAMES) {
+        if (windowAdvanceSamples in 1 until CAPTURE_WINDOW_SAMPLES &&
+            windowAdvanceSamples % captureSamplesPerFrame == 0
+        ) {
+            val sampleShift = windowAdvanceSamples / captureSamplesPerModelSample
+            val frameShift = windowAdvanceSamples / captureSamplesPerFrame
+            // The previous window's interior ends earlier in the new window.
+            val reusableSampleEnd = interiorSampleEnd - sampleShift
+            val reusableFrameEnd = (reusableSampleEnd - WIN_LENGTH / 2) / HOP_SIZE + 1
+            if (reusableFrameEnd > firstInteriorFrame) {
+                paddedSignal.copyInto(
+                    paddedSignal,
+                    destinationOffset = fftPadding + firstInteriorSample,
+                    startIndex = fftPadding + firstInteriorSample + sampleShift,
+                    endIndex = fftPadding + reusableSampleEnd + sampleShift
+                )
+                for (mel in melFilters.indices) {
+                    val offset = mel * MEL_FRAMES
+                    melSpec.copyInto(
+                        melSpec,
+                        destinationOffset = offset + firstInteriorFrame,
+                        startIndex = offset + firstInteriorFrame + frameShift,
+                        endIndex = offset + reusableFrameEnd + frameShift
+                    )
+                }
+
+                prepareSignal(0, firstInteriorSample)
+                prepareSignal(reusableSampleEnd, emphasizedSamples)
+                reflectPadding(paddedSignal, fftPadding)
+                computeMelFrames(0, firstInteriorFrame)
+                computeMelFrames(reusableFrameEnd, MEL_FRAMES)
+                return melSpec
+            }
+        }
+
+        prepareSignal(0, emphasizedSamples)
+        reflectPadding(paddedSignal, fftPadding)
+        computeMelFrames(0, MEL_FRAMES)
+        return melSpec
+    }
+
+    private fun computeMelFrames(firstFrame: Int, frameEnd: Int) {
+        for (frame in firstFrame until frameEnd) {
             val start = fftPadding + frame * HOP_SIZE - WIN_LENGTH / 2
             val windowOffset = (N_FFT - WIN_LENGTH) / 2
             fftBuffer.fill(0f)
@@ -69,22 +121,17 @@ class AudioProcessor : MelSpectrogramProcessor {
                 melSpec[mel * MEL_FRAMES + frame] = (ln(energy.coerceAtLeast(1e-7f)) + 4.5f) / 5f
             }
         }
-        return melSpec
     }
 
-    private fun prepareSignal(audioData: FloatArray) {
-        audioData.copyInto(paddedCapture, destinationOffset = resampleRadius)
-        reflectPadding(paddedCapture, resampleRadius)
-
+    private fun prepareSignal(firstSample: Int, sampleEnd: Int) {
         // Low-pass before halving 32 kHz capture to 16 kHz. The half-band
         // filter has a center tap and symmetric pairs at odd offsets.
-        var previous = downsampleAt(resampleRadius)
-        for (index in 0 until emphasizedSamples) {
-            val current = downsampleAt(resampleRadius + 2 * (index + 1))
+        var previous = downsampleAt(resampleRadius + captureSamplesPerModelSample * firstSample)
+        for (index in firstSample until sampleEnd) {
+            val current = downsampleAt(resampleRadius + captureSamplesPerModelSample * (index + 1))
             paddedSignal[fftPadding + index] = current - 0.97f * previous
             previous = current
         }
-        reflectPadding(paddedSignal, fftPadding)
     }
 
     private fun downsampleAt(center: Int): Float {

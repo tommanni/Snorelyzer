@@ -1,9 +1,11 @@
 package com.example.snorelyzer.ml
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.math.PI
 import kotlin.math.sin
+import kotlin.random.Random
 
 class Fmn06ModelContractTest {
     @Test
@@ -17,7 +19,7 @@ class Fmn06ModelContractTest {
                 ).toFloat()
         }
         val processor = AudioProcessor()
-        val mel = processor.process(waveform)
+        val mel = processor.process(waveform, waveform.size)
 
         assertEquals(128_000, mel.size)
         // Reference values use a direct DFT of the corresponding 16 kHz tones
@@ -28,9 +30,29 @@ class Fmn06ModelContractTest {
         assertEquals(1.794586f, mel[95 * 1000 + frame], 0.0002f)
         assertEquals(-2.323619f, mel[127 * 1000 + frame], 0.0002f)
 
-        val silence = processor.process(FloatArray(waveform.size))
+        val silence = processor.process(FloatArray(waveform.size), waveform.size)
         assertEquals(-2.323619f, silence.first(), 0.0002f)
         assertEquals(-2.323619f, silence.last(), 0.0002f)
+    }
+
+    @Test
+    fun overlappingWindowsMatchFullRecomputation() {
+        val cached = AudioProcessor()
+        val reference = AudioProcessor()
+        val random = Random(31)
+        val windowSamples = AudioModelConfig.CAPTURE_WINDOW_SAMPLES
+        val advances = listOf(windowSamples, 64_000, 64_000, 160_000, windowSamples, 64_000)
+        val audio = FloatArray(advances.sum()) { random.nextFloat() * 2f - 1f }
+        var end = 0
+
+        for (advance in advances) {
+            end += advance
+            val window = audio.copyOfRange(end - windowSamples, end)
+            assertArrayEquals(
+                "Mel features for window ending at sample $end",
+                reference.process(window, windowSamples), cached.process(window, advance), 0f
+            )
+        }
     }
 
     @Test

@@ -104,6 +104,26 @@ class AudioProcessingPipelineTest {
     }
 
     @Test
+    fun preprocessingReceivesTheActualAdvanceOnlyBetweenFullWindows() {
+        val processor = FakeMelSpectrogramProcessor()
+        val pipeline = pipeline(processor = processor)
+        val silence = FloatArray(chunkSize)
+        val fullWindow = AudioModelConfig.CAPTURE_WINDOW_SAMPLES
+
+        repeat(17) { second ->
+            pipeline.processChunk(silence, second * 1_000L, forceInference = second == 9)
+        }
+        assertEquals(
+            listOf(fullWindow, fullWindow, fullWindow, fullWindow, 2 * chunkSize, 5 * chunkSize),
+            processor.windowAdvances
+        )
+
+        pipeline.reset()
+        pipeline.processChunk(silence, 17_000L, forceInference = true)
+        assertEquals(fullWindow, processor.windowAdvances.last())
+    }
+
+    @Test
     fun classifierOutputIsAggregatedToEventGroups() {
         val classifier = FakeRelevantSleepClassifier(
             results = listOf(
@@ -242,9 +262,11 @@ class AudioProcessingPipelineTest {
 
     private class FakeMelSpectrogramProcessor : MelSpectrogramProcessor {
         val processedInputs = mutableListOf<FloatArray>()
+        val windowAdvances = mutableListOf<Int>()
 
-        override fun process(audioData: FloatArray): FloatArray {
+        override fun process(audioData: FloatArray, windowAdvanceSamples: Int): FloatArray {
             processedInputs += audioData.copyOf()
+            windowAdvances += windowAdvanceSamples
             return FloatArray(AudioModelConfig.MEL_TENSOR_SIZE)
         }
     }

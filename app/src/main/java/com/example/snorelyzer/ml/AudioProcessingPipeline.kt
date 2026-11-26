@@ -9,7 +9,8 @@ import com.example.snorelyzer.ml.recording.displayLabel
 import java.util.Locale
 
 fun interface MelSpectrogramProcessor {
-    fun process(audioData: FloatArray): FloatArray
+    /** Pass the capture samples since the previous window, or a full window to rebuild. */
+    fun process(audioData: FloatArray, windowAdvanceSamples: Int): FloatArray
 }
 
 interface RelevantSleepClassifier {
@@ -76,10 +77,12 @@ class AudioProcessingPipeline(
 
     private var validSamples = 0
     private var writeIndex = 0
+    private var samplesSinceFullWindow = totalSamples
 
     override fun reset() {
         validSamples = 0
         writeIndex = 0
+        samplesSinceFullWindow = totalSamples
         audioGate.reset()
     }
 
@@ -95,6 +98,7 @@ class AudioProcessingPipeline(
         System.arraycopy(chunk, 0, audioBuffer, writeIndex, chunkSamples)
         writeIndex = (writeIndex + chunkSamples) % totalSamples
         validSamples = minOf(totalSamples, validSamples + chunkSamples)
+        samplesSinceFullWindow = minOf(totalSamples, samplesSinceFullWindow + chunkSamples)
 
         val windowEndMillis = chunkStartMillis + samplesToMillis(chunk.size)
         val windowStartMillis = windowEndMillis - samplesToMillis(validSamples)
@@ -125,7 +129,11 @@ class AudioProcessingPipeline(
             }
 
             val t0 = System.nanoTime()
-            val melTensor = audioProcessor.process(finalMLInput)
+            val windowAdvance = samplesSinceFullWindow
+            // If preprocessing fails, the next run must rebuild its cache.
+            samplesSinceFullWindow = totalSamples
+            val melTensor = audioProcessor.process(finalMLInput, windowAdvance)
+            if (validSamples == totalSamples) samplesSinceFullWindow = 0
             val t1 = System.nanoTime()
             val probabilities = classifier.classifyRelevant(melTensor, inferenceClassIndices)
             val realFrameCount = validSamples * AudioModelConfig.OUTPUT_FRAMES_PER_SECOND / sampleRate
