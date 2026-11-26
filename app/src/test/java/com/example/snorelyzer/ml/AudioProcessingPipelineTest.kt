@@ -61,8 +61,11 @@ class AudioProcessingPipelineTest {
         val result = pipeline.processChunk(FloatArray(chunkSize), 3_000L, forceInference = false)
 
         assertTrue(result is AudioProcessingResult.Skipped)
-        assertEquals(3, processor.processedInputs.size)
-        assertEquals(3, classifier.classifyCalls)
+        assertEquals(2, processor.processedInputs.size)
+        assertEquals(2, classifier.classifyCalls)
+
+        val afterHop = pipeline.processChunk(FloatArray(chunkSize), 4_000L, forceInference = false)
+        assertTrue(afterHop is AudioProcessingResult.Skipped)
     }
 
     @Test
@@ -74,10 +77,30 @@ class AudioProcessingPipelineTest {
         repeat(3) { index ->
             pipeline.processChunk(FloatArray(chunkSize), index * 1_000L, forceInference = false)
         }
-        val result = pipeline.processChunk(FloatArray(chunkSize), 3_000L, forceInference = true)
+        val beforeHop = pipeline.processChunk(FloatArray(chunkSize), 3_000L, forceInference = true)
+        val result = pipeline.processChunk(FloatArray(chunkSize), 4_000L, forceInference = true)
 
+        assertTrue(beforeHop is AudioProcessingResult.Skipped)
         assertTrue(result is AudioProcessingResult.Classified)
-        assertEquals(4, classifier.classifyCalls)
+        assertEquals(3, classifier.classifyCalls)
+    }
+
+    @Test
+    fun inferenceIncludesAudioFromTheSkippedChunk() {
+        val processor = FakeMelSpectrogramProcessor()
+        val pipeline = pipeline(processor = processor)
+
+        pipeline.processChunk(FloatArray(chunkSize) { 0.1f }, 0L, forceInference = true)
+        pipeline.processChunk(FloatArray(chunkSize) { 0.2f }, 1_000L, forceInference = true)
+        val result = pipeline.processChunk(FloatArray(chunkSize) { 0.3f }, 2_000L, forceInference = true)
+            as AudioProcessingResult.Classified
+
+        assertEquals(2, processor.processedInputs.size)
+        val input = processor.processedInputs.last()
+        assertEquals(0.2f, input[input.size - 2 * chunkSize])
+        assertEquals(0.3f, input[input.size - chunkSize])
+        assertEquals(0L, result.windowStartMillis)
+        assertEquals(75, result.occurringGroupsByFrame.size)
     }
 
     @Test
@@ -174,7 +197,7 @@ class AudioProcessingPipelineTest {
         ))
         repeat(30) { second ->
             val result = pipeline.processChunk(sineChunk(0.1f), second * 1_000L, false)
-            assertTrue(result.toString(), result is AudioProcessingResult.Classified)
+            assertEquals("Chunk $second", second % 2 == 0, result is AudioProcessingResult.Classified)
         }
     }
 

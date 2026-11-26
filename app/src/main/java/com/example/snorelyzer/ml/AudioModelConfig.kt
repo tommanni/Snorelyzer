@@ -6,6 +6,7 @@ object AudioModelConfig {
     const val MODEL_ASSET = "fmn06_strong_int8.tflite"
 
     const val WINDOW_SECONDS = 10
+    const val INFERENCE_HOP_SECONDS = 2
     const val SAMPLE_RATE = 16_000
     const val CAPTURE_WINDOW_SAMPLES = WINDOW_SECONDS * MicrophoneCapture.SAMPLE_RATE
     const val MODEL_WINDOW_SAMPLES = WINDOW_SECONDS * SAMPLE_RATE

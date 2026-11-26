@@ -102,7 +102,11 @@ class AudioGate {
         }
     }
 
-    fun analyze(audioData: FloatArray, protectBackground: Boolean = false): AudioGateDecision {
+    fun analyze(
+        audioData: FloatArray,
+        protectBackground: Boolean = false,
+        minimumInferenceIntervalSeconds: Int = 0
+    ): AudioGateDecision {
         require(audioData.size >= frameSize) { "At least $frameSize audio samples required" }
         require(audioData.all { it.isFinite() }) { "Audio samples must be finite" }
         val seconds = audioData.size / 32_000.0
@@ -187,8 +191,10 @@ class AudioGate {
                 trigger = "stableBackground"
             }
         }
-        val probe = elapsedSeconds - lastInferenceSeconds >= 5.0
-        val shouldInfer = state != AudioGateState.Background || probe
+        val sinceInferenceSeconds = elapsedSeconds - lastInferenceSeconds
+        val probe = sinceInferenceSeconds >= 5.0
+        val hopReady = lastInferenceSeconds == 0.0 || sinceInferenceSeconds >= minimumInferenceIntervalSeconds
+        val shouldInfer = hopReady && (state != AudioGateState.Background || probe)
         if (shouldInfer) lastInferenceSeconds = elapsedSeconds
 
         if (validBackground && !protected) {

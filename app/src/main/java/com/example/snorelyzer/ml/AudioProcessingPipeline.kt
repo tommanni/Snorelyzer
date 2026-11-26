@@ -62,7 +62,7 @@ class AudioProcessingPipeline(
 ) : SleepAudioProcessor {
     private val totalSamples = AudioModelConfig.CAPTURE_WINDOW_SAMPLES
     private val sampleRate = MicrophoneCapture.SAMPLE_RATE
-    private val stepSamples = sampleRate
+    private val chunkSamples = MicrophoneCapture.SAMPLES_PER_CHUNK
     private val audioBuffer = FloatArray(totalSamples)
     private val mlInputBuffer = FloatArray(totalSamples)
     private val paddedMLBuffer = FloatArray(totalSamples)
@@ -88,21 +88,24 @@ class AudioProcessingPipeline(
         chunkStartMillis: Long,
         forceInference: Boolean
     ): AudioProcessingResult {
-        require(chunk.size == stepSamples) {
-            "Expected $stepSamples samples, got ${chunk.size}"
+        require(chunk.size == chunkSamples) {
+            "Expected $chunkSamples samples, got ${chunk.size}"
         }
 
-        System.arraycopy(chunk, 0, audioBuffer, writeIndex, stepSamples)
-        writeIndex = (writeIndex + stepSamples) % totalSamples
-        validSamples = minOf(totalSamples, validSamples + stepSamples)
+        System.arraycopy(chunk, 0, audioBuffer, writeIndex, chunkSamples)
+        writeIndex = (writeIndex + chunkSamples) % totalSamples
+        validSamples = minOf(totalSamples, validSamples + chunkSamples)
 
         val windowEndMillis = chunkStartMillis + samplesToMillis(chunk.size)
         val windowStartMillis = windowEndMillis - samplesToMillis(validSamples)
-        val gateDecision = audioGate.analyze(chunk, protectBackground = forceInference)
-        val shouldInfer = gateDecision.shouldInfer || forceInference
+        val gateDecision = audioGate.analyze(
+            chunk,
+            protectBackground = forceInference,
+            minimumInferenceIntervalSeconds = AudioModelConfig.INFERENCE_HOP_SECONDS
+        )
         logGateDecision(gateDecision, forceInference)
 
-        if (!shouldInfer) {
+        if (!gateDecision.shouldInfer) {
             return AudioProcessingResult.Skipped(
                 windowStartMillis = windowStartMillis,
                 gateDecision = gateDecision
@@ -125,7 +128,7 @@ class AudioProcessingPipeline(
             val melTensor = audioProcessor.process(finalMLInput)
             val t1 = System.nanoTime()
             val probabilities = classifier.classifyRelevant(melTensor, inferenceClassIndices)
-            val realFrameCount = validSamples / stepSamples * AudioModelConfig.OUTPUT_FRAMES_PER_SECOND
+            val realFrameCount = validSamples * AudioModelConfig.OUTPUT_FRAMES_PER_SECOND / sampleRate
             val firstRealFrame = AudioModelConfig.OUTPUT_FRAMES - realFrameCount
             // Warm-up mirrors audio on the left. Only score frames aligned with real samples.
             val groupsByFrame = (firstRealFrame until AudioModelConfig.OUTPUT_FRAMES).map { frame ->
