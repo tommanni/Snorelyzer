@@ -2,7 +2,6 @@ package com.example.snorelyzer.presentation.record
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.snorelyzer.DetectedClassUi
 import com.example.snorelyzer.SessionSaveStatus
 import com.example.snorelyzer.SleepTrackingSessionStateSource
 import kotlinx.coroutines.channels.Channel
@@ -13,8 +12,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class RecordState(
-    val latestStatus: String = "Waiting for audio...",
-    val latestResults: List<DetectedClassUi> = emptyList(),
     val isServiceRunning: Boolean = false,
     val sessionStartedAtMillis: Long? = null,
     val showShortSessionDialog: Boolean = false,
@@ -55,8 +52,6 @@ class RecordViewModel(
             sessionStateSource.state.collect { sessionState ->
                 _state.update {
                     it.copy(
-                        latestStatus = sessionState.latestStatus,
-                        latestResults = sessionState.latestResults,
                         isServiceRunning = sessionState.isRunning,
                         sessionStartedAtMillis = sessionState.sessionStartedAtMillis,
                         isReconnecting = sessionState.isReconnecting,

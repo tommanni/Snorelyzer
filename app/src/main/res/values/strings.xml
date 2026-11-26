@@ -10,7 +10,6 @@
     <string name="sleep_tracker_channel">Sleep Tracker</string>
     <string name="sleep_tracker_active">Sleep Tracker Active</string>
     <string name="record_waiting_for_microphone">Waiting for microphone…</string>
-    <string name="record_in_progress">Recording in Progress</string>
     <string name="record_listening_for_sleep_events">Listening for sleep events…</string>
     <string name="record_reconnecting_microphone">Reconnecting microphone…</string>
     <string name="record_interrupted_at">Sleep recording ended early at %1$s.</string>

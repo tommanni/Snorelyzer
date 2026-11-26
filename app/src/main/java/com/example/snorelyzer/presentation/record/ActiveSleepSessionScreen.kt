@@ -9,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material3.AlertDialog
-
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -46,7 +43,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.snorelyzer.DetectedClassUi
 import com.example.snorelyzer.R
 import com.example.snorelyzer.ui.theme.SnorelyzerTheme
 import kotlinx.coroutines.delay
@@ -121,11 +117,6 @@ fun ActiveSleepSessionScreen(
         ),
         label = "pulseScale"
     )
-    val indicatorColor = if (state.isReconnecting) {
-        MaterialTheme.colorScheme.tertiary
-    } else {
-        MaterialTheme.colorScheme.primary
-    }
 
     Column(
         modifier = Modifier
@@ -173,35 +164,6 @@ fun ActiveSleepSessionScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Live status badge
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(indicatorColor, CircleShape)
-                    )
-                    Text(
-                        text = stringResource(
-                            if (state.isReconnecting) R.string.record_reconnecting_microphone
-                            else R.string.record_in_progress
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             // Timer display
             Text(
                 text = formatElapsedTime(elapsedMillis),
@@ -211,55 +173,34 @@ fun ActiveSleepSessionScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Current sound detection status
-            if (!state.isReconnecting) {
-                Text(
-                    text = state.latestStatus,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
+            if (state.isReconnecting) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .background(MaterialTheme.colorScheme.tertiary, CircleShape)
+                        )
+                        Text(
+                            text = stringResource(R.string.record_reconnecting_microphone),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
 
             if (state.hasSaveFailure) {
                 Spacer(modifier = Modifier.height(16.dp))
                 RecordingWarning(stringResource(R.string.record_save_failed))
-            }
-
-            if (state.latestResults.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    state.latestResults.forEach { result ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.GraphicEq,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(12.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Text(
-                                    text = "${result.label}: ${result.probabilityPercent}%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -330,12 +271,7 @@ private fun ActiveSleepSessionDarkPreview() {
                 state = RecordState(
                     isServiceRunning = true,
                     sessionStartedAtMillis = System.currentTimeMillis() - 7200000L,
-                    latestStatus = "Listening for sleep sounds...",
-                    hasSaveFailure = true,
-                    latestResults = listOf(
-                        DetectedClassUi("Snoring", 78),
-                        DetectedClassUi("Cough", 12)
-                    )
+                    hasSaveFailure = true
                 ),
                 onAction = {}
             )
@@ -352,8 +288,7 @@ private fun ActiveSleepSessionLightPreview() {
                 state = RecordState(
                     isServiceRunning = true,
                     sessionStartedAtMillis = System.currentTimeMillis() - 7200000L,
-                    isReconnecting = true,
-                    hasSaveFailure = true
+                    isReconnecting = true
                 ),
                 onAction = {}
             )

@@ -1,6 +1,5 @@
 package com.example.snorelyzer.presentation.record
 
-import com.example.snorelyzer.DetectedClassUi
 import com.example.snorelyzer.SleepTrackingSessionState
 import com.example.snorelyzer.SleepTrackingSessionStateSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,8 +29,6 @@ class RecordViewModelTest {
 
         advanceUntilIdle()
 
-        assertEquals("Waiting for audio...", viewModel.state.value.latestStatus)
-        assertEquals(emptyList<Any>(), viewModel.state.value.latestResults)
         assertFalse(viewModel.state.value.isServiceRunning)
     }
 
@@ -132,8 +129,6 @@ class RecordViewModelTest {
     ): RecordViewModel {
         val sessionStateSource = FakeSleepTrackingSessionStateSource(
             SleepTrackingSessionState(
-                latestStatus = "Waiting for audio...",
-                latestResults = emptyList<DetectedClassUi>(),
                 isRunning = isServiceRunning,
                 sessionStartedAtMillis = sessionStartedAtMillis
             )

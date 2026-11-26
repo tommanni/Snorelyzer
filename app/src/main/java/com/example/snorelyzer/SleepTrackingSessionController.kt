@@ -4,21 +4,13 @@ import com.example.snorelyzer.ml.AudioProcessingResult
 import com.example.snorelyzer.ml.SleepAudioProcessor
 import com.example.snorelyzer.ml.recording.AudioEventRecorder
 import com.example.snorelyzer.ml.recording.EventFrameTimeline
-import com.example.snorelyzer.ml.recording.displayLabel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 
-data class DetectedClassUi(
-    val label: String,
-    val probabilityPercent: Int
-)
-
 data class SleepTrackingSessionState(
-    val latestStatus: String = "Waiting for audio...",
-    val latestResults: List<DetectedClassUi> = emptyList(),
     val isRunning: Boolean = false,
     val sessionStartedAtMillis: Long? = null,
     val isReconnecting: Boolean = false,
@@ -79,41 +71,28 @@ class SleepTrackingSessionController(
         val pipeline = audioProcessingPipeline ?: return
         audioEventRecorder.onAudioChunk(chunk, chunkStartMillis)
 
-        val occurringGroups = when (
-            val result = pipeline.processChunk(
-                chunk = chunk,
-                chunkStartMillis = chunkStartMillis,
-                forceInference = audioEventRecorder.shouldForceInference || frameTimeline.hasPendingHits
-            )
-        ) {
-            is AudioProcessingResult.Skipped, is AudioProcessingResult.Failed -> {
+        val result = pipeline.processChunk(
+            chunk = chunk,
+            chunkStartMillis = chunkStartMillis,
+            forceInference = audioEventRecorder.shouldForceInference || frameTimeline.hasPendingHits
+        )
+        when (result) {
+            is AudioProcessingResult.Skipped, is AudioProcessingResult.Failed ->
                 frameTimeline.onUnclassified(result.windowStartMillis)
-                emptyList()
-            }
             is AudioProcessingResult.Classified -> {
                 frameTimeline.onClassified(
                     result.windowStartMillis,
                     result.occurringGroupsByFrame
                 )
-                result.occurringGroupResults
             }
         }
-        _state.update {
-            it.copy(
-                isReconnecting = false,
-                latestStatus = if (occurringGroups.isEmpty()) "Listening for sleep events..." else "",
-                latestResults = occurringGroups.map { groupResult ->
-                    DetectedClassUi(
-                        label = groupResult.group.displayLabel(),
-                        probabilityPercent = (groupResult.probability * 100).toInt()
-                    )
-                }
-            )
+        if (_state.value.isReconnecting) {
+            _state.update { it.copy(isReconnecting = false) }
         }
     }
 
     fun onCaptureInterrupted() {
-        _state.update { it.copy(isReconnecting = true, latestResults = emptyList()) }
+        _state.update { it.copy(isReconnecting = true) }
         frameTimeline.flush()
         frameTimeline.reset()
         audioEventRecorder.onCaptureInterrupted()
@@ -132,7 +111,6 @@ class SleepTrackingSessionController(
         val saveToken = synchronized(saveStatusLock) {
             if (sessionId != null) {
                 _state.value = SleepTrackingSessionState(
-                    latestStatus = "Stopped",
                     hasSaveFailure = _state.value.hasSaveFailure,
                     explicitlyStoppedSession = StoppedSessionSave(sessionId, SessionSaveStatus.Saving)
                 )
@@ -179,7 +157,6 @@ class SleepTrackingSessionController(
                 synchronized(saveStatusLock) {
                     if (!save) saveStatusSession = null
                     _state.value = SleepTrackingSessionState(
-                        latestStatus = "Stopped",
                         interruptedAtMillis = endedAtMillis.takeIf { interrupted },
                         hasSaveFailure = save && (_state.value.hasSaveFailure || status == SessionSaveStatus.Failed),
                         explicitlyStoppedSession = sessionId?.let { StoppedSessionSave(it, status) }

@@ -22,7 +22,7 @@ class ActiveSleepSessionScreenTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun activeStateShowsOnlyStopTracking() {
+    fun activeStateShowsTheTimerAndStopControl() {
         composeRule.setContent {
             SnorelyzerTheme {
                 ActiveSleepSessionScreen(
@@ -33,7 +33,11 @@ class ActiveSleepSessionScreenTest {
         }
 
         composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
+        composeRule.onNodeWithText("00:00").assertIsDisplayed()
         composeRule.onAllNodesWithText("Start Tracking").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Recording in Progress").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Mic level").assertCountEquals(0)
+        composeRule.onAllNodesWithText("dBFS", substring = true).assertCountEquals(0)
     }
 
     @Test
@@ -63,7 +67,7 @@ class ActiveSleepSessionScreenTest {
         }
 
         composeRule.onNodeWithText("Reconnecting microphone…").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Recording in Progress").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Mic level").assertCountEquals(0)
         composeRule.onNodeWithText("Stop Tracking").assertIsDisplayed()
     }
 

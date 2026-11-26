@@ -103,7 +103,7 @@ class AudioProcessingPipelineTest {
             listOf(RecordedEventGroup.Gasp, RecordedEventGroup.Snoring),
             classified.groupResults.map { it.group }
         )
-        assertEquals(classified.groupResults, classified.occurringGroupResults)
+        assertTrue(classified.occurringGroupsByFrame.all { it == classified.groupResults })
     }
 
     @Test
@@ -123,7 +123,7 @@ class AudioProcessingPipelineTest {
 
         assertTrue(classifier.requestedClassIndices.containsAll(setOf(46, 176, 344, 346)))
         assertTrue(result.groupResults.isEmpty())
-        assertTrue(result.occurringGroupResults.isEmpty())
+        assertTrue(result.occurringGroupsByFrame.all { it.isEmpty() })
     }
 
     @Test
@@ -141,7 +141,7 @@ class AudioProcessingPipelineTest {
         val result = pipeline.processChunk(FloatArray(chunkSize), 0L, forceInference = false)
             as AudioProcessingResult.Classified
 
-        assertEquals(RecordedEventGroup.Gasp, result.occurringGroupResults.single().group)
+        assertEquals(RecordedEventGroup.Gasp, result.occurringGroupsByFrame.first().single().group)
     }
 
     @Test
@@ -165,7 +165,6 @@ class AudioProcessingPipelineTest {
         assertTrue(result.occurringGroupsByFrame[0].isEmpty())
         assertEquals(RecordedEventGroup.Gasp, result.occurringGroupsByFrame[1].single().group)
         assertEquals(1, result.occurringGroupsByFrame.count { it.isNotEmpty() })
-        assertEquals(RecordedEventGroup.Gasp, result.occurringGroupResults.single().group)
     }
 
     @Test

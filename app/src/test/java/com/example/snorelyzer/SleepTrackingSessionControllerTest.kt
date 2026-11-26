@@ -41,12 +41,11 @@ class SleepTrackingSessionControllerTest {
         assertEquals(1, pipeline.resetCalls)
         assertTrue(controller.state.value.isRunning)
         assertEquals(1_000L, controller.state.value.sessionStartedAtMillis)
-        assertEquals("Waiting for audio...", controller.state.value.latestStatus)
         assertEquals("session-1000", sink.startedSessions.single().sessionId)
     }
 
     @Test
-    fun skippedChunkClearsLatestResultsAndKeepsListeningStatus() {
+    fun skippedInferenceKeepsTheSessionRunning() {
         val pipeline = FakeSleepAudioProcessor(
             results = ArrayDeque(
                 listOf(
@@ -62,36 +61,8 @@ class SleepTrackingSessionControllerTest {
         controller.startSession(startedAtMillis = 0L)
         controller.onAudioChunk(chunk, chunkStartMillis = 0L)
 
-        assertEquals("Listening for sleep events...", controller.state.value.latestStatus)
-        assertTrue(controller.state.value.latestResults.isEmpty())
+        assertTrue(controller.state.value.isRunning)
         assertFalse(pipeline.forceInferenceValues.single())
-    }
-
-    @Test
-    fun classifiedChunkPublishesDetectedResults() {
-        val pipeline = FakeSleepAudioProcessor(
-            results = ArrayDeque(
-                listOf(
-                    AudioProcessingResult.Classified(
-                        windowStartMillis = 0L,
-                        gateDecision = gateDecision(shouldInfer = true),
-                        groupResults = listOf(snoringResult),
-                        occurringGroupResults = listOf(snoringResult),
-                        occurringGroupsByFrame = List(25) { listOf(snoringResult) }
-                    )
-                )
-            )
-        )
-        val controller = controller(pipeline = pipeline)
-
-        controller.startSession(startedAtMillis = 0L)
-        controller.onAudioChunk(chunk, chunkStartMillis = 0L)
-
-        assertEquals("", controller.state.value.latestStatus)
-        assertEquals(
-            listOf(DetectedClassUi(label = "Snoring", probabilityPercent = 31)),
-            controller.state.value.latestResults
-        )
     }
 
     @Test
@@ -155,7 +126,6 @@ class SleepTrackingSessionControllerTest {
         assertEquals(60_000L, sink.completedSessions.single().endedAtMillis)
         assertEquals(1, pipeline.closeCalls)
         assertFalse(controller.state.value.isRunning)
-        assertEquals("Stopped", controller.state.value.latestStatus)
     }
 
     @Test
@@ -181,7 +151,6 @@ class SleepTrackingSessionControllerTest {
                     windowStartMillis = start,
                     gateDecision = gateDecision(shouldInfer = true),
                     groupResults = listOf(snoringResult),
-                    occurringGroupResults = listOf(snoringResult),
                     occurringGroupsByFrame = List(25) { listOf(snoringResult) }
                 )
             })
@@ -195,7 +164,6 @@ class SleepTrackingSessionControllerTest {
 
         assertTrue(controller.state.value.isRunning)
         assertTrue(controller.state.value.isReconnecting)
-        assertTrue(controller.state.value.latestResults.isEmpty())
         assertEquals(2_000L, sink.completedEpisodes.single().clipEndMillis)
         assertEquals(2, pipeline.resetCalls)
 
@@ -237,7 +205,6 @@ class SleepTrackingSessionControllerTest {
                         windowStartMillis = 0L,
                         gateDecision = gateDecision(shouldInfer = true),
                         groupResults = listOf(snoringResult),
-                        occurringGroupResults = listOf(snoringResult),
                         occurringGroupsByFrame = List(25) { listOf(snoringResult) }
                     ),
                     frameWindow(0L, 2_000L, 960L)
@@ -263,7 +230,6 @@ class SleepTrackingSessionControllerTest {
             windowStartMillis = 1_000L,
             gateDecision = gateDecision(shouldInfer = true),
             groupResults = listOf(snoringResult),
-            occurringGroupResults = listOf(snoringResult),
             occurringGroupsByFrame = List(25) { listOf(snoringResult) }
         )
         val pipeline = FakeSleepAudioProcessor(results = ArrayDeque(listOf(result)))
@@ -288,7 +254,6 @@ class SleepTrackingSessionControllerTest {
             windowStartMillis = 1_000L,
             gateDecision = gateDecision(shouldInfer = true),
             groupResults = listOf(snoringResult),
-            occurringGroupResults = listOf(snoringResult),
             occurringGroupsByFrame = List(25) { listOf(snoringResult) }
         )
         val results = ArrayDeque<AudioProcessingResult>(listOf(event, frameWindow(1_000L, 3_000L, 1_960L)))
@@ -382,7 +347,6 @@ class SleepTrackingSessionControllerTest {
             windowStartMillis = start,
             gateDecision = gateDecision(shouldInfer = true),
             groupResults = emptyList(),
-            occurringGroupResults = emptyList(),
             occurringGroupsByFrame = frames
         )
     }
@@ -435,7 +399,6 @@ class SleepTrackingSessionControllerTest {
                     windowStartMillis = start,
                     gateDecision = defaultGateDecision(shouldInfer = true),
                     groupResults = emptyList(),
-                    occurringGroupResults = emptyList(),
                     occurringGroupsByFrame = List(((end - start) / 40).toInt()) { emptyList() }
                 )
             } else {

@@ -34,7 +34,6 @@ sealed interface AudioProcessingResult {
         override val windowStartMillis: Long,
         override val gateDecision: AudioGateDecision,
         val groupResults: List<RecordedEventGroupResult>,
-        val occurringGroupResults: List<RecordedEventGroupResult>,
         val occurringGroupsByFrame: List<List<RecordedEventGroupResult>>
     ) : AudioProcessingResult
 
@@ -149,12 +148,10 @@ class AudioProcessingPipeline(
             logClassificationTiming(t0, t1, t2)
             logClassificationResults(start, groupResults)
             logRespiratoryScores(probabilities, firstRealFrame)
-            val latestGroups = peakGroupResults(groupsByFrame.takeLast(AudioModelConfig.OUTPUT_FRAMES_PER_SECOND))
             AudioProcessingResult.Classified(
                 windowStartMillis = windowStartMillis,
                 gateDecision = gateDecision,
                 groupResults = groupResults,
-                occurringGroupResults = latestGroups.filter { it.isOccurring },
                 occurringGroupsByFrame = groupsByFrame.map { results -> results.filter { it.isOccurring } }
             )
         }.getOrElse { error ->
